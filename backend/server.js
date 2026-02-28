@@ -1,5 +1,4 @@
-// server.js - Full WebRTC Signaling Server
-
+// ================== IMPORTS ==================
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -7,36 +6,32 @@ const dotenv = require('dotenv');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const Submission = require('./Models/Submission');
+const fs = require('fs');
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
-//
-// ✅ FIXED CORS FOR VERCEL
-//
+// ================== CORS CONFIG ==================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://major-project-phase-2-avcq9u5z8-gugulothu-bindus-projects.vercel.app",
+  "https://major-project-silk-pi.vercel.app"
+];
+
 app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "https://major-project-silk-pi.vercel.app"
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  origin: allowedOrigins,
   credentials: true
 }));
 
 app.use(express.json());
 
-//
-// ✅ Serve Static Uploads
-//
+// ================== STATIC FILES ==================
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(__dirname));
 
-//
-// ✅ Routes
-//
+// ================== ROUTES ==================
 const teacherRoutes = require('./routes/teacherRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -48,54 +43,121 @@ app.use('/api/auth', authRoutes);
 app.use('/api/quizzes', quizRoutes);
 
 app.get('/', (req, res) => {
-  res.send('Virtual Classroom Server Running');
+  res.send('🚀 Virtual Classroom Server Running');
 });
 
-//
-// ✅ FIXED SOCKET.IO CORS
-//
+// ================== SOCKET.IO ==================
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:3000",
-      "https://major-project-silk-pi.vercel.app"
-    ],
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   },
   transports: ['websocket', 'polling']
 });
 
-//
-// ================= SOCKET LOGIC =================
-// (Your full existing socket code remains SAME below)
-// Do NOT change anything inside your socket events.
-//
+const meetings = new Map();
+const userSockets = new Map();
 
-// -------- KEEP YOUR ENTIRE SOCKET CODE HERE --------
-// (I am not rewriting it since yours is already correct)
-// ---------------------------------------------------
+io.on('connection', (socket) => {
+  console.log('🔵 User connected:', socket.id);
 
+  socket.on('join-meeting', ({ meetingId, userId, userName, role }) => {
+    socket.join(meetingId);
+    socket.data = { meetingId, userId };
+    userSockets.set(socket.id, { meetingId, userId });
 
-//
-// ✅ MongoDB Connection
-//
-mongoose.connect(
-  process.env.MONGODB_URI || 'mongodb://localhost:27017/virtual-classroom',
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
+    if (!meetings.has(meetingId)) {
+      meetings.set(meetingId, { participants: [] });
+    }
+
+    const meeting = meetings.get(meetingId);
+
+    const participant = {
+      socketId: socket.id,
+      userId,
+      userName,
+      role,
+      audioEnabled: true,
+      videoEnabled: true
+    };
+
+    meeting.participants.push(participant);
+
+    socket.to(meetingId).emit('user-joined', participant);
+
+    socket.emit('all-users',
+      meeting.participants.filter(p => p.userId !== userId)
+    );
+
+    console.log(`✅ ${userName} joined meeting ${meetingId}`);
+  });
+
+  socket.on('signal', ({ userToSignal, callerId, signal }) => {
+    io.to(userToSignal).emit('signal', {
+      from: callerId,
+      signal
+    });
+  });
+
+  socket.on('chat-message', ({ meetingId, message }) => {
+    io.to(meetingId).emit('chat-message', {
+      ...message,
+      timestamp: new Date().toLocaleTimeString()
+    });
+  });
+
+  socket.on('leave-meeting', ({ meetingId, userId }) => {
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      meeting.participants = meeting.participants.filter(p => p.userId !== userId);
+      socket.to(meetingId).emit('user-left', userId);
+
+      if (meeting.participants.length === 0) {
+        meetings.delete(meetingId);
+      }
+    }
+    socket.leave(meetingId);
+  });
+
+  socket.on('disconnect', () => {
+    const { meetingId, userId } = socket.data || {};
+    if (meetingId && userId) {
+      const meeting = meetings.get(meetingId);
+      if (meeting) {
+        meeting.participants = meeting.participants.filter(p => p.userId !== userId);
+        socket.to(meetingId).emit('user-left', userId);
+
+        if (meeting.participants.length === 0) {
+          meetings.delete(meetingId);
+        }
+      }
+    }
+    userSockets.delete(socket.id);
+    console.log('🔴 User disconnected:', socket.id);
+  });
+});
+
+// ================== DEBUG UPLOADS ==================
+app.get('/debug-uploads', (req, res) => {
+  const uploadsPath = path.join(__dirname, 'uploads');
+
+  if (fs.existsSync(uploadsPath)) {
+    const files = fs.readdirSync(uploadsPath);
+    res.json({ success: true, files });
+  } else {
+    res.json({ success: false, message: "Uploads folder not found" });
   }
-)
-.then(() => console.log('✅ MongoDB connected'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+});
 
-//
-// ✅ Start Server
-//
+// ================== DATABASE ==================
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB error:', err));
+
+// ================== SERVER START ==================
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔗 Production domain allowed: https://major-project-silk-pi.vercel.app`);
 });
