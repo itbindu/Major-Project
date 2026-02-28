@@ -1,0 +1,236 @@
+.dashboard-container {
+  padding: 20px;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 20px 0;
+}
+.dashboard-box {
+  background: #f8f9fa;
+  padding: 15px;
+  text-align: center;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.dashboard-box:hover {
+  background: #e9ecef;
+}
+.toggle-approval-btn {
+  padding: 10px 20px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+.toggle-approval-btn:hover {
+  background: #0056b3;
+}
+.approval-page {
+  margin-top: 20px;
+  padding: 15px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+.approve-btn {
+  margin-left: 10px;
+  padding: 5px 10px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.approve-btn:hover {
+  background: #218838;
+}
+.logout-btn {
+  padding: 10px 20px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+.logout-btn:hover {
+  background: #c82333;
+}
+ul {
+  list-style: none;
+  padding: 0;
+}
+li {
+  margin: 10px 0;
+}
+.message {
+  color: #dc3545;
+  margin: 10px 0;
+  font-weight: bold;
+}
+/* Updated file: src/components/Teacher/TeacherDashboard.css (add close button style)*/
+.close-btn {
+  padding: 8px 16px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+/* Add to TeacherDashboard.css for table */
+.history-section {
+  margin-top: 20px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th, .history-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.history-table th {
+  background-color: #f2f2f2;
+}.teacher-dashboard {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.dashboard-header h1 {
+  color: #d0d0ff;
+  margin: 0;
+}
+
+.logout-button {
+  background: #ff4444;
+  color: white;
+  border: none;
+  padding: 0.7rem 1.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.2rem;
+  margin-bottom: 2.5rem;
+}
+
+.action-card {
+  background: #1e1e40;
+  border: 1px solid #3a3a6a;
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+  text-decoration: none;
+  color: #e0e0ff;
+  transition: all 0.2s;
+}
+
+.action-card:hover {
+  transform: translateY(-4px);
+  border-color: #5a5aff;
+  box-shadow: 0 8px 24px rgba(90,90,255,0.18);
+}
+
+.action-card.primary {
+  background: linear-gradient(135deg, #5a5aff, #7a7aff);
+  color: white;
+}
+
+.action-card .icon {
+  font-size: 2.2rem;
+  display: block;
+  margin-bottom: 0.8rem;
+}
+
+.toggle-students-btn {
+  background: #3a3a7a;
+  color: white;
+  border: none;
+  padding: 0.9rem 1.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.05rem;
+  margin-bottom: 1.5rem;
+}
+
+.students-section {
+  background: #14142b;
+  border-radius: 12px;
+  padding: 1.8rem;
+  border: 1px solid #2a2a55;
+}
+
+.students-section h2 {
+  color: #c0c0ff;
+  margin-top: 0;
+}
+
+.students-list {
+  list-style: none;
+  padding: 0;
+}
+
+.student-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid #2a2a55;
+}
+
+.student-info strong {
+  color: #d0d0ff;
+}
+
+.student-info span {
+  display: block;
+  color: #a0a0c0;
+  font-size: 0.95rem;
+}
+
+.teachers-list {
+  font-size: 0.9rem;
+  color: #88ff88;
+}
+
+.assign-button {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.already-assigned {
+  color: #88ff88;
+  font-weight: bold;
+}
+
+.status-message {
+  padding: 0.8rem;
+  background: rgba(100,255,100,0.15);
+  border-radius: 6px;
+  margin: 1rem 0;
+}

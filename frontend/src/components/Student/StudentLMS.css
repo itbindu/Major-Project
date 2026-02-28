@@ -1,0 +1,160 @@
+.student-lms-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 30px 20px;
+}
+
+.lms-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.lms-header h1 {
+  margin: 0;
+  color: #1a3c5e;
+}
+
+.back-btn {
+  padding: 10px 20px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+}
+
+.files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
+}
+
+.file-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.file-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+  border-color: #c0c0c0;
+}
+
+.file-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+}
+
+.file-info {
+  flex: 1;
+  margin-bottom: 20px;
+}
+
+.file-name {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+  color: #1e88e5;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.file-description {
+  margin: 0 0 15px;
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #1e88e5;
+}
+
+.file-teacher,
+.file-date,
+.file-size {
+  margin: 8px 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.label {
+  color: #444;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.download-btn {
+  display: inline-block;
+  padding: 12px 24px;
+  background: #28a745;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: background 0.2s, transform 0.1s;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.download-btn:hover {
+  background: #218838;
+  transform: scale(1.02);
+}
+
+.loading, .no-files {
+  text-align: center;
+  padding: 60px 20px;
+  color: #555;
+  font-size: 1.1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 30px;
+}
+
+.error-message {
+  color: #dc3545;
+  text-align: center;
+  margin: 20px 0;
+  padding: 12px;
+  background: #f8d7da;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.no-files p {
+  margin-bottom: 10px;
+  font-size: 1.2rem;
+}
+
+.no-files small {
+  color: #777;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+  .files-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .lms-header {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+}
