@@ -33,7 +33,7 @@ const TeacherRegister = () => {
     if (!isValidPhone(phoneNumber)) return alert("Enter a valid 10-digit phone number.");
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}api/teachers/send-otp`, { email });
+      const response = await axios.post(`http://localhost:5000/api/teachers/send-otp`, { email });
       if (response.data.success) {
         alert(response.data.message);
         setIsOtpSent(true);
@@ -52,7 +52,7 @@ const TeacherRegister = () => {
     if (!otp) return alert("Enter the OTP.");
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}api/teachers/verify-otp`, { email, otp });
+      const response = await axios.post(`http://localhost:5000/api/teachers/verify-otp`, { email, otp });
       if (response.data.success) {
         alert("OTP verified! Creating account...");
         handleSignup();
@@ -73,7 +73,7 @@ const TeacherRegister = () => {
     if (password !== confirmPassword) return alert("Passwords do not match.");
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}api/teachers/signup`, {
+      const response = await axios.post(`http://localhost:5000/api/teachers/signup`, {
         firstName,
         lastName,
         email,
