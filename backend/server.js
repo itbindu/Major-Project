@@ -15,17 +15,28 @@ const server = http.createServer(app);
 
 // ================== CORS CONFIG ==================
 const allowedOrigins = [
-  "http://localhost:3000",
-  "https://major-project-phase-2-avcq9u5z8-gugulothu-bindus-projects.vercel.app",
   "https://major-project-silk-pi.vercel.app"
 ];
 
+// CORS middleware for Express routes
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ================== STATIC FILES ==================
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -46,14 +57,24 @@ app.get('/', (req, res) => {
   res.send('🚀 Virtual Classroom Server Running');
 });
 
+// Test endpoint for CORS
+app.get('/test-cors', (req, res) => {
+  res.json({ 
+    message: 'CORS is working!', 
+    origin: req.headers.origin 
+  });
+});
+
 // ================== SOCKET.IO ==================
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  allowEIO3: true
 });
 
 const meetings = new Map();
@@ -150,6 +171,25 @@ app.get('/debug-uploads', (req, res) => {
   }
 });
 
+// ================== ERROR HANDLING MIDDLEWARE ==================
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  
+  // Handle CORS errors specifically
+  if (err.message.includes('CORS')) {
+    return res.status(403).json({ 
+      error: 'CORS error', 
+      message: 'Origin not allowed',
+      allowedOrigins: allowedOrigins
+    });
+  }
+  
+  res.status(500).json({ 
+    error: 'Server error', 
+    message: err.message 
+  });
+});
+
 // ================== DATABASE ==================
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ MongoDB connected'))
@@ -160,4 +200,5 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log('✅ CORS enabled for origins:', allowedOrigins);
 });
