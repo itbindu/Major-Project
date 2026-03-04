@@ -168,7 +168,10 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   // ============ INITIALIZE SOCKET ============
   useEffect(() => {
-    const socket = io('http://localhost:5000', {
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Extract the base URL without https:// or http://
+const SOCKET_URL = API_URL.replace(/^https?:\/\//, '');
+const socket = io(SOCKET_URL, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,

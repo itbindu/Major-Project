@@ -1,8 +1,8 @@
 // src/components/Student/StudentDashboard.js
 import React, { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import axios from "axios";
-import { Calendar, Clock, Video, BookOpen, Award, Bell, Users, Trophy } from 'lucide-react';
+import api from "../../api/config"; // Import the configured API instance
+import { Calendar, Clock } from 'lucide-react';
 import "./StudentDashboard.css";
 import studentImage from "../../assets/student.png";
 
@@ -25,17 +25,13 @@ function StudentDashboard() {
 
       try {
         // Check approval status
-        const approvalRes = await axios.get("http://localhost:5000/api/students/check-approval", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const approvalRes = await api.get("/api/students/check-approval");
 
         setApproved(approvalRes.data.isApproved);
 
         if (approvalRes.data.isApproved) {
           // Get profile
-          const profileRes = await axios.get("http://localhost:5000/api/students/profile", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const profileRes = await api.get("/api/students/profile");
           
           const fullName = `${profileRes.data.firstName || ''} ${profileRes.data.lastName || ''}`.trim() || 'Student';
           const email = profileRes.data.email || '';
@@ -59,7 +55,10 @@ function StudentDashboard() {
         if (err.response?.status === 403) {
           alert("Account not approved yet.");
         } else {
-          navigate("/student/login");
+          // Don't navigate away immediately, check if token exists
+          if (!localStorage.getItem("token")) {
+            navigate("/student/login");
+          }
         }
       } finally {
         setLoading(false);
@@ -77,7 +76,7 @@ function StudentDashboard() {
         const key = localStorage.key(i);
         if (key && key.startsWith('attendance_')) {
           try {
-            const records = JSON.parse(localStorage.getItem(key));
+            const records = JSON.parse(localStorage.getItem(key) || '[]');
             // Find records matching this student
             const myRecords = records.filter(r => 
               r.userName === studentName || 
@@ -140,7 +139,7 @@ function StudentDashboard() {
           <h1>Welcome back, {studentName}! 👋</h1>
           {notifications.length > 0 && (
             <div className="notification-badge">
-              <Bell size={16} />
+              <span>🔔</span>
               {notifications.filter(n => !n.read).length} new notifications
             </div>
           )}
@@ -148,7 +147,7 @@ function StudentDashboard() {
         <button onClick={handleLogout} className="logout-button">Logout</button>
       </header>
 
-      {/* ATTENDANCE BUTTON - Moved ABOVE the dashboard grid */}
+      {/* ATTENDANCE BUTTON */}
       <div className="dashboard-actions">
         <button 
           className="dashboard-btn attendance-btn"
@@ -208,7 +207,7 @@ function StudentDashboard() {
                 Last: {formatDate(recentAttendance[0]?.joinedAt)}
               </span>
               <span className="attendance-duration">
-                Duration: {recentAttendance[0]?.duration}
+                Duration: {recentAttendance[0]?.duration || 'N/A'}
               </span>
             </div>
           ) : (
@@ -240,7 +239,7 @@ function StudentDashboard() {
                 <div className="attendance-details">
                   <div className="attendance-duration">
                     <Clock size={14} />
-                    <span>{record.duration}</span>
+                    <span>{record.duration || 'N/A'}</span>
                   </div>
                   <span className={`status-badge ${record.leftAt ? 'left' : 'present'}`}>
                     {record.leftAt ? 'Left' : 'Present'}

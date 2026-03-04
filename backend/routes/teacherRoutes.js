@@ -13,6 +13,14 @@ const authenticateToken = require('../middleware/auth');
 
 const router = express.Router();
 
+// ============ GET FRONTEND URL ============
+const getFrontendUrl = () => {
+  // Check if we're in production (Render) or development
+  return process.env.NODE_ENV === 'production' 
+    ? 'https://major-project-silk-pi.vercel.app' 
+    : 'http://localhost:3000';
+};
+
 // ============ MULTER CONFIGURATION FOR FILE UPLOADS ============
 // Create uploads directory if it doesn't exist
 const uploadDir = 'uploads/';
@@ -236,6 +244,7 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     
     // Notify student via email
     const teacher = await Teacher.findById(req.user.id);
+    const frontendUrl = getFrontendUrl();
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: student.email,
@@ -245,7 +254,7 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
         <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
         <p>You can now access their meetings and learning materials.</p>
         <p>Total teachers assigned to you: ${student.teachers.length}</p>
-        <p>Login to your dashboard to view new content: <a href="http://localhost:3000/student/login">Student Dashboard</a></p>
+        <p>Login to your dashboard to view new content: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
         <p>Best regards,<br>Virtual Classroom Team</p>
       `
     };
@@ -285,7 +294,8 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
 
     // Fetch students assigned to this teacher
     const assignedStudents = await Student.find({ teachers: req.user.id });
-    const meetingLink = `http://localhost:3000/meeting/${meetingId}`;
+    const frontendUrl = getFrontendUrl();
+    const meetingLink = `${frontendUrl}/meeting/${meetingId}`;
     const teacher = await Teacher.findById(req.user.id);
 
     let notifiedCount = 0;

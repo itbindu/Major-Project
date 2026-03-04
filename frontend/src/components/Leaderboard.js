@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/config';
 import { useParams, useNavigate } from 'react-router-dom';
 import './Leaderboard.css';
 
@@ -15,11 +15,7 @@ const Leaderboard = () => {
     const fetchLeaderboard = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        const response = await axios.get(
-          `http://localhost:5000/api/quizzes/${quizId}/leaderboard`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const response = await api.get(`/api/quizzes/${quizId}/leaderboard`);
         setLeaderboard(response.data.leaderboard || []);
         setQuizTitle(response.data.quizTitle || 'Quiz');
       } catch (error) {
@@ -111,7 +107,6 @@ const Leaderboard = () => {
         </>
       )}
       
-      {/* FIXED: Changed from '/teacher/quizzes' to '/teacher/leaderboard' */}
       <button onClick={() => navigate('/teacher/leaderboard')} className="back-btn">
         ← Back to Quiz Selection
       </button>

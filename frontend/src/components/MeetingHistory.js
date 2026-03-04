@@ -1,18 +1,15 @@
 // src/components/MeetingHistory.js
-// Combined version: works for both student (assigned meetings) and teacher (created meetings)
-
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
-import './MeetingHistory.css'; // we'll define simple shared styles below
+import { useNavigate } from 'react-router-dom';
+import api from '../api/config';
+import './MeetingHistory.css';
 
-const MeetingHistory = ({ role = 'student' }) => {  // role: 'student' or 'teacher'
+const MeetingHistory = ({ role = 'student' }) => {
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     const fetchMeetings = async () => {
@@ -30,9 +27,7 @@ const MeetingHistory = ({ role = 'student' }) => {  // role: 'student' or 'teach
           endpoint = '/api/students/meetings';
         }
 
-        const response = await axios.get(`http://localhost:5000${endpoint}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get(endpoint);
 
         const fetchedMeetings = response.data.meetings || response.data || [];
         setMeetings(fetchedMeetings);

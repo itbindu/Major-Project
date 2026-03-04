@@ -1,6 +1,6 @@
-// src/components/AttendanceTracker.js - Updated version
+// src/components/AttendanceTracker.js
 import React, { useState, useEffect } from 'react';
-import { Clock, Users, Download, Calendar, CheckCircle, XCircle } from 'lucide-react';
+import { Clock, Users, Download, Calendar } from 'lucide-react';
 import './AttendanceTracker.css';
 
 const AttendanceTracker = ({ meetingId, userId, userName, role, participants }) => {
@@ -14,44 +14,36 @@ const AttendanceTracker = ({ meetingId, userId, userName, role, participants }) 
   });
 
   useEffect(() => {
-    // Load existing attendance from localStorage
     const loadAttendance = () => {
       const storedAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-      // In AttendanceTracker.js - update the initial attendance record creation
-
-// Replace the initialization part (around line 30-45) with:
-
-if (storedAttendance.length === 0) {
-  // Initialize new attendance record
-  const startTime = new Date();
-  setMeetingStartTime(startTime);
-  
-  // Get student ID from multiple sources
-  const studentId = userId || 
-                    localStorage.getItem('userId') || 
-                    localStorage.getItem('studentId') || 
-                    `student_${Date.now()}`;
-  
-  const newAttendance = [{
-    userId: studentId,
-    userName: userName || localStorage.getItem('currentStudentName') || 'Student',
-    role: role || 'student',
-    email: localStorage.getItem('currentStudentEmail') || '',
-    joinedAt: startTime.toISOString(),
-    leftAt: null,
-    duration: '00:00'
-  }];
-  
-  localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(newAttendance));
-  setAttendance(newAttendance);
-  setMyAttendance(newAttendance[0]);
-}
-     else {
+      
+      if (storedAttendance.length === 0) {
+        const startTime = new Date();
+        setMeetingStartTime(startTime);
+        
+        const studentId = userId || 
+                          localStorage.getItem('userId') || 
+                          localStorage.getItem('studentId') || 
+                          `student_${Date.now()}`;
+        
+        const newAttendance = [{
+          userId: studentId,
+          userName: userName || localStorage.getItem('currentStudentName') || 'Student',
+          role: role || 'student',
+          email: localStorage.getItem('currentStudentEmail') || '',
+          joinedAt: startTime.toISOString(),
+          leftAt: null,
+          duration: '00:00'
+        }];
+        
+        localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(newAttendance));
+        setAttendance(newAttendance);
+        setMyAttendance(newAttendance[0]);
+      } else {
         setAttendance(storedAttendance);
         const myRecord = storedAttendance.find(r => r.userId === userId);
         if (myRecord) setMyAttendance(myRecord);
         
-        // Get meeting start time from first participant
         if (storedAttendance.length > 0) {
           setMeetingStartTime(new Date(storedAttendance[0].joinedAt));
         }
@@ -60,7 +52,6 @@ if (storedAttendance.length === 0) {
     
     loadAttendance();
     
-    // Update duration timer
     const durationTimer = setInterval(() => {
       if (meetingStartTime) {
         const elapsed = new Date() - meetingStartTime;
@@ -73,7 +64,6 @@ if (storedAttendance.length === 0) {
         );
       }
       
-      // Update my attendance duration
       if (myAttendance.joinedAt && !myAttendance.leftAt) {
         const joined = new Date(myAttendance.joinedAt);
         const now = new Date();
@@ -84,7 +74,6 @@ if (storedAttendance.length === 0) {
         
         setMyAttendance(prev => ({ ...prev, duration }));
         
-        // Update in localStorage
         const updatedAttendance = attendance.map(record =>
           record.userId === userId
             ? { ...record, duration }
@@ -98,7 +87,6 @@ if (storedAttendance.length === 0) {
     return () => clearInterval(durationTimer);
   }, [meetingId, userId, userName, role, meetingStartTime]);
 
-  // Update participants in attendance
   useEffect(() => {
     if (participants && participants.length > 0) {
       const currentAttendance = [...attendance];

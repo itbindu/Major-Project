@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../api/config';
 import { useNavigate } from 'react-router-dom';
 import './CreateQuiz.css';
 
@@ -53,7 +53,6 @@ const CreateQuiz = () => {
       }
       
       if (q.type === 'mcq') {
-        // Check if all options are filled
         for (let j = 0; j < q.options.length; j++) {
           if (!q.options[j].trim()) {
             setMessage(`Question ${i + 1}: Option ${j + 1} is required`);
@@ -66,7 +65,6 @@ const CreateQuiz = () => {
           return false;
         }
         
-        // Validate that correct answer matches one of the options
         const validOptions = ['A', 'B', 'C', 'D'];
         if (!validOptions.includes(q.correctAnswer.toUpperCase())) {
           setMessage(`Question ${i + 1}: Correct answer must be A, B, C, or D`);
@@ -94,34 +92,24 @@ const CreateQuiz = () => {
     setMessage('');
     
     try {
-      const token = localStorage.getItem('token');
-      
-      // Format the questions properly
       const formattedQuestions = questions.map(q => {
         if (q.type === 'mcq') {
           return {
             ...q,
-            correctAnswer: q.correctAnswer.toUpperCase() // Normalize to uppercase
+            correctAnswer: q.correctAnswer.toUpperCase()
           };
         }
         return q;
       });
       
-      const response = await axios.post(
-        'http://localhost:5000/api/quizzes/create', 
-        { 
-          title: title.trim(), 
-          questions: formattedQuestions, 
-          timeLimit: parseInt(timeLimit) 
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      const response = await api.post('/api/quizzes/create', { 
+        title: title.trim(), 
+        questions: formattedQuestions, 
+        timeLimit: parseInt(timeLimit) 
+      });
       
       setMessage('Quiz created successfully! Notifications sent to students.');
       
-      // FIXED: Navigate to teacher dashboard instead of my-quizzes
       setTimeout(() => {
         navigate('/teacher/dashboard');
       }, 2000);

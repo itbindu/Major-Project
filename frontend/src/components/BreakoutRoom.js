@@ -1,4 +1,4 @@
-// src/components/BreakoutRoom.js - COMPLETE FIXED VERSION
+// src/components/BreakoutRoom.js
 import React, { useState, useEffect } from 'react';
 import { 
   Users, LogOut, UserPlus, Settings, CheckCircle, 
@@ -21,32 +21,27 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
   const [assignmentNotification, setAssignmentNotification] = useState(null);
   const [loading, setLoading] = useState(false);
   
-  // Mini meeting states for breakout room
   const [roomMicOn, setRoomMicOn] = useState(true);
   const [roomCameraOn, setRoomCameraOn] = useState(false);
 
-  // Load saved breakout rooms from localStorage
   useEffect(() => {
     const savedRooms = localStorage.getItem(`breakout_${meetingId}`);
     if (savedRooms) {
       try {
         const parsedRooms = JSON.parse(savedRooms);
         setBreakoutRooms(parsedRooms);
-        console.log('Loaded breakout rooms from localStorage:', parsedRooms);
       } catch (e) {
         console.error('Error parsing breakout rooms:', e);
       }
     }
   }, [meetingId]);
 
-  // Save breakout rooms to localStorage
   useEffect(() => {
     if (breakoutRooms.length > 0) {
       localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(breakoutRooms));
     }
   }, [breakoutRooms, meetingId]);
 
-  // ============ ASSIGN PARTICIPANT TO ROOM ============
   const assignParticipant = (roomId, participantId) => {
     if (role !== 'teacher') return;
     
@@ -56,24 +51,19 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
       return;
     }
 
-    // Check if participant exists
     const participant = participants.find(p => p.userId === participantId);
     if (!participant) {
       alert('Participant not found');
       return;
     }
 
-    console.log(`Assigning participant ${participant.userName} to room ${room.name}`);
-
     setBreakoutRooms(prev => {
-      // First, remove participant from all rooms
       let updatedRooms = prev.map(r => ({
         ...r,
         participants: r.participants.filter(id => id !== participantId),
         teachers: r.teachers.filter(id => id !== participantId)
       }));
 
-      // Then add to selected room
       updatedRooms = updatedRooms.map(r => {
         if (r.id === roomId) {
           if (participant.role === 'teacher') {
@@ -91,12 +81,10 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         return r;
       });
 
-      // Save to localStorage
       localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(updatedRooms));
       return updatedRooms;
     });
 
-    // Show notification to the assigned participant via socket
     if (socket) {
       socket.emit('assign-to-breakout-room', {
         meetingId,
@@ -107,7 +95,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         assignedByName: userName
       });
 
-      // Also emit manual assignment event for the participant
       socket.emit('manual-assignment', {
         meetingId,
         roomId,
@@ -118,11 +105,9 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
       });
     }
 
-    // Show success message
     alert(`${participant.userName} assigned to ${room.name}`);
   };
 
-  // ============ REMOVE PARTICIPANT FROM ROOM ============
   const removeParticipant = (roomId, participantId) => {
     if (role !== 'teacher') return;
     
@@ -152,31 +137,23 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   };
 
-  // Listen for socket events
   useEffect(() => {
     if (!socket) {
-      console.log('No socket connection available');
       return;
     }
 
-    console.log('Setting up breakout room socket listeners for:', role, userId);
-
-    // Listen for when breakout rooms are created
     socket.on('breakout-rooms-created', (data) => {
-      console.log('Breakout rooms created event received:', data);
       const { rooms, assignmentMethod } = data;
       
       setBreakoutRooms(rooms);
       localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(rooms));
       
-      // If auto-assign and student is assigned, auto-join
       if (assignmentMethod === 'auto' && role === 'student') {
         const assignedRoom = rooms.find(room => 
           room.participants.includes(userId) || room.teachers.includes(userId)
         );
         
         if (assignedRoom) {
-          console.log('Student auto-assigned to room:', assignedRoom);
           setAssignmentNotification({
             roomId: assignedRoom.id,
             roomName: assignedRoom.name,
@@ -192,12 +169,9 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
       }
     });
 
-    // Listen for when student is assigned to a breakout room (manual assignment)
     socket.on('assigned-to-breakout-room', (data) => {
-      console.log('Assigned to breakout room event received:', data);
       const { roomId, roomName, assignedBy } = data;
       
-      // Update breakout rooms with assignment
       setBreakoutRooms(prevRooms => {
         const updatedRooms = prevRooms.map(room => {
           if (room.id === roomId) {
@@ -212,7 +186,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         return updatedRooms;
       });
 
-      // Show notification
       setAssignmentNotification({
         roomId,
         roomName,
@@ -220,20 +193,16 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         timestamp: new Date().toISOString()
       });
 
-      // Automatically join the breakout room
       setTimeout(() => {
         autoJoinBreakoutRoom(roomId);
         setAssignmentNotification(null);
       }, 2000);
     });
 
-    // Listen for manual assignment from teacher
     socket.on('manual-assignment', (data) => {
-      console.log('Manual assignment event received:', data);
       const { participantId, roomId, roomName } = data;
       
       if (participantId === userId) {
-        // Update breakout rooms with assignment
         setBreakoutRooms(prevRooms => {
           const updatedRooms = prevRooms.map(room => {
             if (room.id === roomId) {
@@ -262,16 +231,12 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
       }
     });
 
-    // Listen for breakout rooms update
     socket.on('breakout-rooms-updated', (rooms) => {
-      console.log('Breakout rooms updated:', rooms);
       setBreakoutRooms(rooms);
       localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(rooms));
     });
 
-    // Listen for all breakout rooms closed
     socket.on('breakout-rooms-closed', () => {
-      console.log('Breakout rooms closed');
       setBreakoutRooms([]);
       setCurrentRoom(null);
       setMiniMeetingActive(false);
@@ -287,13 +252,10 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     };
   }, [socket, userId, role, meetingId]);
 
-  // Request current breakout rooms on mount
   useEffect(() => {
     if (socket && meetingId) {
-      // Request current breakout rooms
       socket.emit('get-breakout-rooms', { meetingId });
       
-      // Also check localStorage
       const savedRooms = localStorage.getItem(`breakout_${meetingId}`);
       if (savedRooms) {
         try {
@@ -306,17 +268,13 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   }, [socket, meetingId]);
 
-  // Auto join breakout room and leave main meeting
   const autoJoinBreakoutRoom = (roomId) => {
-    console.log('Auto-joining breakout room:', roomId);
     const room = breakoutRooms.find(r => r.id === roomId);
     
     if (room) {
-      // Set current room
       setCurrentRoom(roomId);
       setMiniMeetingActive(true);
       
-      // Add user to room participants if not already
       const updatedRooms = breakoutRooms.map(r => {
         if (r.id === roomId) {
           if (!r.participants.includes(userId) && !r.teachers.includes(userId)) {
@@ -333,13 +291,11 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
       setBreakoutRooms(updatedRooms);
       localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(updatedRooms));
       
-      // Update room participants for mini meeting
       setRoomParticipants(prev => ({
         ...prev,
         [roomId]: [...(prev[roomId] || []), userId]
       }));
       
-      // Emit socket event to notify others
       if (socket) {
         socket.emit('join-breakout-room', {
           meetingId,
@@ -350,7 +306,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
           autoJoined: true
         });
         
-        // Notify main meeting to hide main video/audio
         socket.emit('user-left-main-meeting', {
           meetingId,
           userId,
@@ -359,7 +314,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         });
       }
 
-      // Dispatch custom event for MeetingRoom component
       const event = new CustomEvent('breakoutRoomJoined', {
         detail: { roomId, userId, autoJoined: true }
       });
@@ -367,37 +321,19 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   };
 
-  // Manual join breakout room
   const joinBreakoutRoom = (roomId) => {
-    console.log('Manually joining breakout room:', roomId);
     const room = breakoutRooms.find(r => r.id === roomId);
     
     if (room) {
-      // Check if user is allowed to join
       const isTeacher = role === 'teacher';
       const isAssigned = room.participants.includes(userId) || room.teachers.includes(userId);
       
-      // FOR DEBUG: Log the conditions
-      console.log('Join conditions:', {
-        isTeacher,
-        isAssigned,
-        assignmentMethod: room.assignmentMethod,
-        userId,
-        roomParticipants: room.participants,
-        roomTeachers: room.teachers
-      });
-
-      // STUDENTS SHOULD ALWAYS BE ABLE TO JOIN IF:
-      // 1. It's auto-assign mode, OR
-      // 2. They are assigned to this room, OR
-      // 3. They are a teacher
       const canJoin = room.assignmentMethod === 'auto' || isTeacher || isAssigned;
       
       if (canJoin) {
         setCurrentRoom(roomId);
         setMiniMeetingActive(true);
         
-        // Add user to room participants if not already
         if (!room.participants.includes(userId) && !room.teachers.includes(userId)) {
           const updatedRooms = breakoutRooms.map(r => {
             if (r.id === roomId) {
@@ -413,7 +349,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
           localStorage.setItem(`breakout_${meetingId}`, JSON.stringify(updatedRooms));
         }
         
-        // Update room participants for mini meeting
         setRoomParticipants(prev => ({
           ...prev,
           [roomId]: [...(prev[roomId] || []), userId]
@@ -428,7 +363,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
             role
           });
           
-          // Notify main meeting to hide main video/audio
           socket.emit('user-left-main-meeting', {
             meetingId,
             userId,
@@ -437,7 +371,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
           });
         }
 
-        // Dispatch custom event for MeetingRoom component
         const event = new CustomEvent('breakoutRoomJoined', {
           detail: { roomId, userId }
         });
@@ -448,10 +381,8 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   };
 
-  // Leave breakout room only and return to main meeting
   const leaveBreakoutRoomOnly = () => {
     if (currentRoom) {
-      // Remove user from room
       const updatedRooms = breakoutRooms.map(room => {
         if (room.id === currentRoom) {
           return {
@@ -477,7 +408,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
           userName
         });
         
-        // Notify main meeting to show main video/audio again
         socket.emit('user-returned-to-main-meeting', {
           meetingId,
           userId,
@@ -485,7 +415,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         });
       }
 
-      // Dispatch custom event for MeetingRoom component
       const event = new CustomEvent('breakoutRoomLeft', {
         detail: { roomId: currentRoom, userId }
       });
@@ -493,13 +422,11 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   };
 
-  // Leave overall meeting
   const leaveOverallMeeting = () => {
     setShowLeaveRoomOptions(false);
     document.querySelector('.leave-btn')?.click();
   };
 
-  // Create breakout rooms (teacher only)
   const createBreakoutRooms = () => {
     setLoading(true);
     const rooms = [];
@@ -517,21 +444,18 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
     
     if (assignmentMethod === 'auto') {
-      // Auto assign participants evenly
       const studentParticipants = participants.filter(p => p.role !== 'teacher');
       studentParticipants.forEach((participant, index) => {
         const roomIndex = index % roomCount;
         rooms[roomIndex].participants.push(participant.userId);
       });
       
-      // Auto assign teachers
       const teacherParticipants = participants.filter(p => p.role === 'teacher');
       teacherParticipants.forEach((teacher, index) => {
         const roomIndex = index % roomCount;
         rooms[roomIndex].teachers.push(teacher.userId);
       });
     } else if (assignmentMethod === 'manual') {
-      // Manual assignment
       rooms.forEach(room => {
         Object.keys(selectedParticipants).forEach(participantId => {
           if (selectedParticipants[participantId] === room.id) {
@@ -552,11 +476,9 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     setShowCreationModal(false);
     setLoading(false);
     
-    // Reset selections
     setSelectedParticipants({});
     setSelectedTeachers({});
     
-    // Notify via socket
     if (socket) {
       socket.emit('breakout-rooms-created', {
         meetingId,
@@ -564,7 +486,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         assignmentMethod
       });
       
-      // Send individual assignments to students for manual mode
       if (assignmentMethod === 'manual') {
         rooms.forEach(room => {
           room.participants.forEach(participantId => {
@@ -584,26 +505,22 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
     }
   };
 
-  // Refresh breakout rooms
   const refreshBreakoutRooms = () => {
     if (socket) {
       socket.emit('get-breakout-rooms', { meetingId });
     }
   };
 
-  // Get participant name by ID
   const getParticipantName = (participantId) => {
     if (participantId === userId) return userName;
     const participant = participants.find(p => p.userId === participantId);
     return participant ? participant.userName : 'Unknown';
   };
 
-  // Check if user is in any room
   const isInAnyRoom = currentRoom !== null;
 
   return (
     <div className="breakout-room-panel">
-      {/* Assignment Notification */}
       {assignmentNotification && (
         <div className="assignment-notification">
           <Bell size={20} />
@@ -680,7 +597,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
               </button>
             </div>
             
-            {/* Mini Meeting Interface */}
             <div className="mini-meeting-container">
               <div className="mini-video-grid">
                 <div className="mini-video-tile local">
@@ -698,7 +614,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                   </div>
                 </div>
                 
-                {/* Room Participants */}
                 {breakoutRooms.find(r => r.id === currentRoom)?.participants.map(pid => (
                   pid !== userId && (
                     <div key={pid} className="mini-video-tile">
@@ -747,7 +662,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
               </div>
             </div>
             
-            {/* Leave Room Options Modal */}
             {showLeaveRoomOptions && (
               <div className="modal-overlay small">
                 <div className="modal-content small">
@@ -800,7 +714,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         ) : breakoutRooms.length > 0 ? (
           <div className="rooms-list">
             {breakoutRooms.map(room => {
-              // Check if user is in this room
               const isUserInRoom = room.participants.includes(userId) || room.teachers.includes(userId);
               
               return (
@@ -813,7 +726,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                   </div>
                   
                   <div className="room-participants-preview">
-                    {/* Show teachers in room */}
                     {room.teachers.map(teacherId => {
                       const teacher = participants.find(p => p.userId === teacherId);
                       return teacher ? (
@@ -826,7 +738,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                       ) : null;
                     })}
                     
-                    {/* Show participants in room */}
                     {room.participants.slice(0, 3).map(participantId => {
                       const participant = participants.find(p => p.userId === participantId);
                       return participant ? (
@@ -847,12 +758,9 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                   </div>
                   
                   <div className="room-actions">
-                    {/* SHOW JOIN BUTTON FOR STUDENTS */}
                     {!currentRoom ? (
-                      // Not in any breakout room
                       <>
                         {room.assignmentMethod === 'auto' ? (
-                          // Auto mode - anyone can join
                           <button 
                             className="join-btn"
                             onClick={() => joinBreakoutRoom(room.id)}
@@ -860,7 +768,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                             Join Room
                           </button>
                         ) : (
-                          // Manual mode - only if assigned
                           (room.participants.includes(userId) || 
                            room.teachers.includes(userId) || 
                            role === 'teacher') ? (
@@ -878,7 +785,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                         )}
                       </>
                     ) : (
-                      // Already in a breakout room
                       <span className="in-room-message">
                         ✅ You're in another room
                       </span>
@@ -888,7 +794,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                       <button 
                         className="assign-btn"
                         onClick={() => {
-                          // Create a custom assignment prompt
                           const participantOptions = participants
                             .filter(p => p.userId !== userId)
                             .map(p => `${p.userName} (${p.userId})`)
@@ -901,7 +806,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
                           
                           if (selected && selected.trim()) {
                             let participantId = selected.trim();
-                            // Extract ID if in format "Name (userId)"
                             const match = selected.match(/\(([^)]+)\)/);
                             if (match) {
                               participantId = match[1];
@@ -941,7 +845,6 @@ const BreakoutRoom = ({ meetingId, userId, userName, role, participants, socket 
         )}
       </div>
 
-      {/* Creation Modal - Teacher Only */}
       {showCreationModal && role === 'teacher' && (
         <div className="modal-overlay">
           <div className="modal-content">

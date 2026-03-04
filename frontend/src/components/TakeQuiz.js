@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api/config';
 import './TakeQuiz.css';
 
 const TakeQuiz = () => {
@@ -8,14 +8,13 @@ const TakeQuiz = () => {
   const navigate = useNavigate();
   const [quiz, setQuiz] = useState(null);
   const [answers, setAnswers] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(null); // start as null, not 0
+  const [timeLeft, setTimeLeft] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [checking, setChecking] = useState(true);
   const timerRef = useRef(null);
 
-  // 1️⃣ CHECK IF ALREADY SUBMITTED
   useEffect(() => {
     let isMounted = true;
     const checkSubmission = async () => {
@@ -25,10 +24,7 @@ const TakeQuiz = () => {
           navigate('/student/login');
           return;
         }
-        const res = await axios.get(
-          `http://localhost:5000/api/quizzes/check-submission/${quizId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const res = await api.get(`/api/quizzes/check-submission/${quizId}`);
         if (isMounted) {
           if (res.data.submitted) {
             alert('You have already taken this quiz.');
@@ -46,49 +42,39 @@ const TakeQuiz = () => {
     return () => { isMounted = false; };
   }, [quizId, navigate]);
 
-  // In TakeQuiz.js, update the fetchQuiz useEffect:
+  useEffect(() => {
+    if (checking) return;
+    
+    const fetchQuiz = async () => {
+      try {
+        const res = await api.get(`/api/quizzes/${quizId}`);
+        
+        const quizData = res.data.quiz;
+        setQuiz(quizData);
 
-useEffect(() => {
-  if (checking) return;
-  
-  const fetchQuiz = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      console.log('Fetching quiz with ID:', quizId);
-      
-      const res = await axios.get(`http://localhost:5000/api/quizzes/${quizId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      console.log('Quiz data received:', res.data);
-      
-      const quizData = res.data.quiz;
-      setQuiz(quizData);
-
-      const safeTimeLimit = quizData.timeLimit > 0 ? quizData.timeLimit : 60;
-      setTimeLeft(safeTimeLimit * 60);
-      
-      setAnswers(new Array(quizData.questions.length).fill(''));
-    } catch (err) {
-      console.error('Fetch quiz error:', err);
-      
-      if (err.response?.status === 404) {
-        alert('Quiz not found. It may have been deleted.');
-      } else if (err.response?.status === 401) {
-        alert('Your session has expired. Please login again.');
-        navigate('/student/login');
-      } else {
-        alert('Could not load quiz: ' + (err.response?.data?.message || err.message));
+        const safeTimeLimit = quizData.timeLimit > 0 ? quizData.timeLimit : 60;
+        setTimeLeft(safeTimeLimit * 60);
+        
+        setAnswers(new Array(quizData.questions.length).fill(''));
+      } catch (err) {
+        console.error('Fetch quiz error:', err);
+        
+        if (err.response?.status === 404) {
+          alert('Quiz not found. It may have been deleted.');
+        } else if (err.response?.status === 401) {
+          alert('Your session has expired. Please login again.');
+          navigate('/student/login');
+        } else {
+          alert('Could not load quiz: ' + (err.response?.data?.message || err.message));
+        }
+        
+        navigate('/student/quizzes');
       }
-      
-      navigate('/student/quizzes');
-    }
-  };
-  
-  fetchQuiz();
-}, [checking, quizId, navigate]);
+    };
+    
+    fetchQuiz();
+  }, [checking, quizId, navigate]);
 
-  // 3️⃣ TIMER – only starts when timeLeft is a positive number
   useEffect(() => {
     if (!quiz || submissionResult || timeLeft === null || timeLeft <= 0) return;
     timerRef.current = setInterval(() => {
@@ -97,7 +83,6 @@ useEffect(() => {
     return () => clearInterval(timerRef.current);
   }, [timeLeft, quiz, submissionResult]);
 
-  // 4️⃣ AUTO-SUBMIT when time reaches 0
   useEffect(() => {
     if (timeLeft === 0 && !submissionResult && !isSubmitting) {
       handleSubmit();
@@ -116,12 +101,7 @@ useEffect(() => {
     clearInterval(timerRef.current);
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `http://localhost:5000/api/quizzes/submit/${quizId}`,
-        { answers },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await api.post(`/api/quizzes/submit/${quizId}`, { answers });
 
       setSubmissionResult({
         score: res.data.score,
@@ -141,7 +121,6 @@ useEffect(() => {
     }
   };
 
-  // 5️⃣ LOADING STATES
   if (checking) {
     return (
       <div className="take-quiz-container loading">
@@ -159,9 +138,7 @@ useEffect(() => {
     );
   }
 
-  // 6️⃣ RENDER QUIZ FORM (if not submitted and timer is set)
   if (!submissionResult) {
-    // Wait until timeLeft is set (not null) to render the timer
     if (timeLeft === null) {
       return (
         <div className="take-quiz-container loading">
@@ -216,7 +193,6 @@ useEffect(() => {
     );
   }
 
-  // 7️⃣ RENDER RESULT (submitted)
   return (
     <div className="quiz-result-container">
       <h2>✅ Quiz Submitted!</h2>

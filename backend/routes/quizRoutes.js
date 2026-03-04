@@ -6,7 +6,12 @@ const Submission = require('../Models/Submission');
 const authenticateToken = require('../middleware/auth');
 const nodemailer = require('nodemailer');
 const router = express.Router();
-
+// Add at the top of quizRoutes.js, after the requires
+const getFrontendUrl = () => {
+  return process.env.NODE_ENV === 'production' 
+    ? 'https://major-project-silk-pi.vercel.app' 
+    : 'http://localhost:3000';
+};
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -301,6 +306,7 @@ router.get('/:quizId/leaderboard', authenticateToken, async (req, res) => {
 // ─────────────────────────────────────────────
 // CREATE QUIZ (Teacher only)
 // ─────────────────────────────────────────────
+// CREATE QUIZ (Teacher only)
 router.post('/create', authenticateToken, async (req, res) => {
   const { title, questions, timeLimit } = req.body;
   
@@ -323,6 +329,7 @@ router.post('/create', authenticateToken, async (req, res) => {
 
     const teacher = await Teacher.findById(req.user.id).populate('students');
     const assignedStudents = teacher.students || [];
+    const frontendUrl = getFrontendUrl();
 
     // Send notifications to all assigned students
     const emailPromises = assignedStudents.map(async (student) => {
@@ -342,7 +349,7 @@ router.post('/create', authenticateToken, async (req, res) => {
                 <p style="color: #64748b;">📋 Questions: ${questions.length}</p>
               </div>
               <p>Log in to your student dashboard to take the quiz.</p>
-              <a href="http://localhost:3000/student/quizzes" 
+              <a href="${frontendUrl}/student/quizzes" 
                  style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; 
                         text-decoration: none; border-radius: 8px; margin-top: 20px;">
                 Take Quiz Now

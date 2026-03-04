@@ -1,6 +1,6 @@
-// src/components/Student/StudentLMS.js - Updated version with description
+// src/components/Student/StudentLMS.js
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../api/config';
 import { useNavigate } from 'react-router-dom';
 import './StudentLMS.css';
 
@@ -22,9 +22,7 @@ const StudentLMS = () => {
         return;
       }
 
-      const response = await axios.get('http://localhost:5000/api/students/lms-files', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.get('/api/students/lms-files');
 
       setFiles(response.data.files || []);
     } catch (err) {
@@ -35,7 +33,6 @@ const StudentLMS = () => {
     }
   };
 
-  // Helper function to get file icon based on extension
   const getFileIcon = (filename) => {
     const ext = filename.split('.').pop().toLowerCase();
     if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return '🖼️';
@@ -104,7 +101,7 @@ const StudentLMS = () => {
               </div>
 
               <a
-                href={`http://localhost:5000${file.path}`}
+                href={`${api.defaults.baseURL}${file.path}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 download={file.filename}

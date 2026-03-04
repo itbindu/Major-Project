@@ -1,7 +1,7 @@
 // src/components/AttendancePage.js
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Users, Download, ArrowLeft, Video, CheckCircle, XCircle } from 'lucide-react';
+import { Calendar, Clock, Users, Download, ArrowLeft, Video } from 'lucide-react';
 import './AttendancePage.css';
 
 const AttendancePage = ({ role = 'student' }) => {
@@ -18,10 +18,8 @@ const AttendancePage = ({ role = 'student' }) => {
   const loadAttendanceRecords = () => {
     setLoading(true);
     try {
-      // Get all attendance records from localStorage
       const allRecords = [];
       
-      // Iterate through all localStorage keys
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith('attendance_')) {
@@ -29,9 +27,7 @@ const AttendancePage = ({ role = 'student' }) => {
             const meetingId = key.replace('attendance_', '');
             const records = JSON.parse(localStorage.getItem(key));
             
-            // Filter records based on role
             if (role === 'student') {
-              // Student sees only their own attendance
               const studentId = localStorage.getItem('userId') || localStorage.getItem('currentStudentId');
               const myRecords = records.filter(r => 
                 r.userId === studentId || 
@@ -46,7 +42,6 @@ const AttendancePage = ({ role = 'student' }) => {
                 });
               }
             } else {
-              // Teacher sees all attendance for their meetings
               allRecords.push({
                 meetingId,
                 records,
@@ -59,7 +54,6 @@ const AttendancePage = ({ role = 'student' }) => {
         }
       }
 
-      // Sort by date (newest first)
       allRecords.sort((a, b) => {
         const dateA = new Date(a.records[0]?.joinedAt || 0);
         const dateB = new Date(b.records[0]?.joinedAt || 0);
@@ -216,7 +210,6 @@ const AttendancePage = ({ role = 'student' }) => {
       ) : (
         <div className="attendance-content">
           {selectedMeeting ? (
-            // Meeting Details View
             <div className="meeting-details-view">
               <div className="details-header">
                 <button 
@@ -233,7 +226,6 @@ const AttendancePage = ({ role = 'student' }) => {
 
               {meetingDetails && (
                 <>
-                  {/* Meeting Summary */}
                   <div className="meeting-summary-cards">
                     <div className="summary-card">
                       <Clock size={24} />
@@ -258,7 +250,6 @@ const AttendancePage = ({ role = 'student' }) => {
                     </div>
                   </div>
 
-                  {/* Attendance Table */}
                   <div className="attendance-table-container">
                     <div className="table-header-actions">
                       <h3>Participant Attendance</h3>
@@ -316,7 +307,6 @@ const AttendancePage = ({ role = 'student' }) => {
               )}
             </div>
           ) : (
-            // Meetings List View
             <div className="meetings-list-view">
               <div className="meetings-grid">
                 {attendanceRecords.map(({ meetingId, records, allParticipants }) => {
@@ -349,7 +339,6 @@ const AttendancePage = ({ role = 'student' }) => {
                         
                         {meetingEnd && (
                           <div className="time-row">
-                            <XCircle size={14} />
                             <div className="time-detail">
                               <span className="time-label">End:</span>
                               <span className="time-value">{formatDateTime(meetingEnd)}</span>

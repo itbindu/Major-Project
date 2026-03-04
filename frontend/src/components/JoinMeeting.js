@@ -1,7 +1,7 @@
-// Updated file: src/components/JoinMeeting.js (after join, navigate to StudentMeetingRoom and store name)
+// src/components/JoinMeeting.js
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api/config';
 import "./JoinMeeting.css";
 
 const JoinMeeting = () => {
@@ -21,7 +21,7 @@ const JoinMeeting = () => {
 
   const fetchMeeting = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/students/meeting/${meetingId}`);
+      const response = await api.get(`/api/students/meeting/${meetingId}`);
       setMeeting(response.data.meeting);
       setParticipants(response.data.meeting.participants || []);
     } catch (error) {
@@ -35,13 +35,11 @@ const JoinMeeting = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await axios.post(`http://localhost:5000/api/students/join-meeting/${meetingId}`, { name, email });
+      const response = await api.post(`/api/students/join-meeting/${meetingId}`, { name, email });
       setMessage(response.data.message);
       setParticipants(response.data.participants);
       setJoined(true);
-      // Store name for meeting room
       localStorage.setItem('currentStudentName', name);
-      // Navigate to student meeting room
       navigate(`/student/meeting-room/${meetingId}`);
     } catch (error) {
       setMessage('Failed to join: ' + (error.response?.data?.message || error.message));

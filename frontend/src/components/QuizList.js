@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/config';
 import { Link } from 'react-router-dom';
 import './QuizList.css';
 
@@ -14,21 +14,14 @@ const QuizList = () => {
       try {
         const token = localStorage.getItem('token');
         
-        // Debug: Check if token exists
         if (!token) {
           setError('No authentication token found. Please login again.');
           setLoading(false);
           return;
         }
 
-        console.log('Fetching quizzes with token:', token.substring(0, 20) + '...');
-        
-        const response = await axios.get('http://localhost:5000/api/quizzes/list', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get('/api/quizzes/list');
 
-        console.log('Quiz list response:', response.data);
-        
         if (response.data.success) {
           setQuizzes(response.data.quizzes || []);
           setDebug({ status: 'success', count: response.data.quizzes?.length });
@@ -43,7 +36,6 @@ const QuizList = () => {
           headers: err.response?.headers
         });
         
-        // Handle specific error cases
         if (err.response?.status === 401) {
           setError('Your session has expired. Please login again.');
           localStorage.removeItem('token');
@@ -54,7 +46,7 @@ const QuizList = () => {
           setError('Your account is not approved yet. Please wait for teacher approval.');
         } else if (err.response?.status === 404) {
           setError('No quizzes found for your teachers.');
-          setQuizzes([]); // Set empty array, not error
+          setQuizzes([]);
         } else {
           setError(err.response?.data?.message || 'Failed to load quizzes. Please try again.');
         }

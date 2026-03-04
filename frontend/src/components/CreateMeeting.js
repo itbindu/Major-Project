@@ -1,6 +1,6 @@
-// Updated file: src/components/CreateMeeting.js (after creation, navigate to teacher meeting room)
+// src/components/CreateMeeting.js
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../api/config';
 import { useNavigate } from 'react-router-dom';
 import './CreateMeeting.css';
 
@@ -8,7 +8,7 @@ const CreateMeeting = () => {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [meetingLink, setMeetingLink] = useState('');
-  const [meetingId, setMeetingId] = useState(''); // Store meetingId for navigation
+  const [meetingId, setMeetingId] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -18,15 +18,11 @@ const CreateMeeting = () => {
     setMessage('');
     setMeetingLink('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:5000/api/teachers/create-meeting',
-        { title },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/api/teachers/create-meeting', { title });
+
       setMessage(response.data.message);
       setMeetingLink(response.data.link);
-      setMeetingId(response.data.meetingId); // Store for navigation
+      setMeetingId(response.data.meetingId);
       setTitle('');
     } catch (error) {
       setMessage('Failed to create meeting: ' + (error.response?.data?.message || error.message));

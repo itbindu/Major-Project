@@ -1,6 +1,6 @@
 // src/components/Teacher/StudentApprovalSection.js
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../api/config";
 import "./StudentApprovalSection.css";
 
 const StudentApprovalSection = () => {
@@ -18,19 +18,10 @@ const StudentApprovalSection = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
       
-      // Fetch students
-      const studentsRes = await axios.get(
-        "http://localhost:5000/api/teachers/registered-students",
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const studentsRes = await api.get("/api/teachers/registered-students");
       
-      // Fetch all teachers for dropdown
-      const teachersRes = await axios.get(
-        "http://localhost:5000/api/teachers/all-teachers",
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const teachersRes = await api.get("/api/teachers/all-teachers");
 
       if (studentsRes.data.success) {
         setStudents(studentsRes.data.students || []);
@@ -48,19 +39,13 @@ const StudentApprovalSection = () => {
   };
 
   const handleAssignStudent = async (studentId, teacherId = null) => {
-    // If no teacherId provided, assign to current teacher
     const assignTeacherId = teacherId || localStorage.getItem("teacherId");
     
     try {
-      const token = localStorage.getItem("token");
-      await axios.post(
-        "http://localhost:5000/api/teachers/assign-student",
-        { studentId, teacherId: assignTeacherId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post("/api/teachers/approve-student", { studentId });
       
       setMessage("Student assigned successfully!");
-      fetchData(); // Refresh data
+      fetchData();
       setShowAssignModal(false);
       
       setTimeout(() => setMessage(""), 3000);
@@ -74,12 +59,7 @@ const StudentApprovalSection = () => {
     if (!window.confirm("Remove this assignment?")) return;
 
     try {
-      const token = localStorage.getItem("token");
-      await axios.post(
-        "http://localhost:5000/api/teachers/remove-assignment",
-        { studentId, teacherId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post("/api/teachers/remove-assignment", { studentId, teacherId });
       
       setMessage("Assignment removed!");
       fetchData();
@@ -171,7 +151,6 @@ const StudentApprovalSection = () => {
         </ul>
       )}
 
-      {/* Modal for assigning to other teachers */}
       {showAssignModal && selectedStudent && (
         <div className="modal-overlay">
           <div className="assign-modal">

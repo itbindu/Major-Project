@@ -1,21 +1,19 @@
 // src/components/Student/ProctoredQuiz.js
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/config';
 import './ProctoredQuiz.css';
 
 const ProctoredQuiz = () => {
   const { quizId } = useParams();
   const navigate = useNavigate();
   
-  // Quiz state
   const [quiz, setQuiz] = useState(null);
   const [answers, setAnswers] = useState([]);
   const [timeLeft, setTimeLeft] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
   
-  // Proctoring state
   const [mediaPermissions, setMediaPermissions] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
@@ -32,7 +30,6 @@ const ProctoredQuiz = () => {
   const [isStartingQuiz, setIsStartingQuiz] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   
-  // Refs
   const videoRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -43,7 +40,6 @@ const ProctoredQuiz = () => {
   const isComponentMountedRef = useRef(true);
   const isExitingFullscreenRef = useRef(false);
 
-  // Set mounted flag
   useEffect(() => {
     isComponentMountedRef.current = true;
     return () => {
@@ -51,15 +47,10 @@ const ProctoredQuiz = () => {
     };
   }, []);
 
-  // Check if already submitted
   useEffect(() => {
     const checkSubmission = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(
-          `http://localhost:5000/api/quizzes/check-submission/${quizId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const res = await api.get(`/api/quizzes/check-submission/${quizId}`);
         if (res.data.submitted && isComponentMountedRef.current) {
           alert('You have already taken this quiz.');
           navigate('/student/quizzes');
@@ -71,7 +62,6 @@ const ProctoredQuiz = () => {
     checkSubmission();
   }, [quizId, navigate]);
 
-  // Safe exit fullscreen function
   const safeExitFullscreen = async () => {
     if (isExitingFullscreenRef.current) return;
     isExitingFullscreenRef.current = true;
@@ -101,7 +91,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Safe enter fullscreen function
   const safeEnterFullscreen = async () => {
     try {
       const elem = document.documentElement;
@@ -129,29 +118,23 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Add event listener with cleanup tracking
   const addSafeEventListener = (target, type, listener, options) => {
     target.addEventListener(type, listener, options);
     eventListenersRef.current.push({ target, type, listener, options });
   };
 
-  // Remove all event listeners
   const removeAllEventListeners = () => {
     eventListenersRef.current.forEach(({ target, type, listener, options }) => {
       try {
         target.removeEventListener(type, listener, options);
       } catch (err) {
-        // Ignore removal errors
       }
     });
     eventListenersRef.current = [];
   };
 
-  // Request media permissions with advanced options
   const requestMediaPermissions = async () => {
     try {
-      console.log('Requesting media permissions...');
-      
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: {
           width: { ideal: 1280 },
@@ -166,41 +149,32 @@ const ProctoredQuiz = () => {
         }
       });
       
-      console.log('Media permissions granted');
-      
       if (isComponentMountedRef.current) {
         setVideoStream(stream);
       }
       
-      // Setup video
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
-        // Wait for video to be ready
         await new Promise((resolve) => {
           if (videoRef.current.readyState >= 2) {
-            console.log('Video already ready');
             setVideoReady(true);
             resolve();
           } else {
             videoRef.current.onloadeddata = () => {
-              console.log('Video loaded data');
               setVideoReady(true);
               resolve();
             };
           }
         });
         
-        // Play the video
         try {
           await videoRef.current.play();
-          console.log('Video playing');
         } catch (playError) {
           console.error('Error playing video:', playError);
         }
       }
       
-      // Setup audio analysis
       if (isComponentMountedRef.current) {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
         await audioContextRef.current.resume();
@@ -208,7 +182,6 @@ const ProctoredQuiz = () => {
         analyserRef.current.fftSize = 2048;
         const source = audioContextRef.current.createMediaStreamSource(stream);
         source.connect(analyserRef.current);
-        console.log('Audio context setup complete');
       }
       
       return true;
@@ -221,30 +194,24 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Start quiz with enhanced proctoring - FIXED VERSION
   const startQuiz = async () => {
-    // Prevent multiple start attempts
     if (isStartingQuiz || quizStarted) return;
     setIsStartingQuiz(true);
     
     try {
-      // Request media permissions
       const mediaGranted = await requestMediaPermissions();
       if (!mediaGranted) {
         setIsStartingQuiz(false);
         return;
       }
       
-      // Enter fullscreen
       const fullscreenGranted = await safeEnterFullscreen();
       if (!fullscreenGranted) {
         setIsStartingQuiz(false);
         return;
       }
       
-      // Start quiz - set state to true
       if (isComponentMountedRef.current) {
-        console.log('Setting quizStarted to true');
         setQuizStarted(true);
         setIsStartingQuiz(false);
       }
@@ -258,19 +225,12 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Setup proctoring features after quiz starts
   const setupProctoringFeatures = () => {
     if (!isComponentMountedRef.current || !quizStarted) return;
     
-    console.log('Setting up proctoring features...');
-    
-    // Start audio monitoring
     startAudioMonitoring();
-    
-    // Start face detection
     startFaceDetection();
     
-    // Setup all event listeners
     addSafeEventListener(document, 'fullscreenchange', checkFullscreen);
     addSafeEventListener(document, 'webkitfullscreenchange', checkFullscreen);
     addSafeEventListener(document, 'msfullscreenchange', checkFullscreen);
@@ -287,7 +247,6 @@ const ProctoredQuiz = () => {
     addSafeEventListener(window, 'keyup', preventScreenshot);
     addSafeEventListener(window, 'keydown', preventF11);
     
-    // Disable browser back button
     window.history.pushState(null, null, window.location.href);
     addSafeEventListener(window, 'popstate', function (event) {
       window.history.pushState(null, null, window.location.href);
@@ -296,16 +255,12 @@ const ProctoredQuiz = () => {
       }
     });
     
-    // Prevent text selection
     document.body.style.userSelect = 'none';
     document.body.style.webkitUserSelect = 'none';
     document.body.style.msUserSelect = 'none';
     document.body.style.mozUserSelect = 'none';
-    
-    console.log('Proctoring features setup complete');
   };
 
-  // Start audio monitoring
   const startAudioMonitoring = () => {
     if (!analyserRef.current || !isComponentMountedRef.current) return;
     
@@ -320,7 +275,6 @@ const ProctoredQuiz = () => {
         const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         setAudioLevel(average);
         
-        // Detect prolonged silence
         if (average < 5) {
           silentFrames++;
           if (silentFrames > 100 && quizStarted && isComponentMountedRef.current) {
@@ -336,22 +290,18 @@ const ProctoredQuiz = () => {
     checkAudio();
   };
 
-  // Start face detection
   const startFaceDetection = () => {
     if (!isComponentMountedRef.current || !quizStarted) return;
     
-    // Clear any existing interval
     if (faceDetectionIntervalRef.current) {
       clearInterval(faceDetectionIntervalRef.current);
     }
     
-    // Start new face detection interval
     faceDetectionIntervalRef.current = setInterval(() => {
       detectFace();
     }, 1000);
   };
 
-  // Advanced face detection using canvas
   const detectFace = () => {
     if (!videoRef.current || !canvasRef.current || !isComponentMountedRef.current || !quizStarted) return;
 
@@ -365,7 +315,6 @@ const ProctoredQuiz = () => {
 
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Basic face detection simulation
       const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
       const faceDetected = detectFaceInImageData(imageData);
       
@@ -379,12 +328,10 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Simulated face detection (replace with actual ML model)
   const detectFaceInImageData = (imageData) => {
-    return Math.random() > 0.1; // 90% success rate for demo
+    return Math.random() > 0.1;
   };
 
-  // Prevent F11 key
   const preventF11 = (e) => {
     if (e.key === 'F11' && quizStarted) {
       e.preventDefault();
@@ -392,7 +339,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Check fullscreen status with strict enforcement
   const checkFullscreen = () => {
     if (!isComponentMountedRef.current) return;
     
@@ -404,13 +350,11 @@ const ProctoredQuiz = () => {
     
     if (!isFullscreen && quizStarted && isComponentMountedRef.current) {
       addWarning('You exited fullscreen mode');
-      // Attempt to re-enter fullscreen
       safeEnterFullscreen();
     }
     setFullscreen(!!isFullscreen);
   };
 
-  // Add warning with auto-submit logic
   const addWarning = (message) => {
     if (!isComponentMountedRef.current || !quizStarted) return;
     
@@ -423,7 +367,6 @@ const ProctoredQuiz = () => {
         count: newCount
       }]);
       
-      // Auto-submit after 3 warnings
       if (newCount >= 3 && !isSubmitting && !submissionResult) {
         alert('Multiple violations detected. Quiz will be submitted automatically.');
         handleSubmit();
@@ -433,7 +376,6 @@ const ProctoredQuiz = () => {
     });
   };
 
-  // Handle visibility change (tab switching)
   const handleVisibilityChange = () => {
     if (!isComponentMountedRef.current || !quizStarted) return;
     
@@ -446,7 +388,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Handle mouse leaving window
   const handleMouseLeave = (e) => {
     if (!isComponentMountedRef.current || !quizStarted) return;
     
@@ -459,7 +400,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Prevent keyboard shortcuts
   const handleKeyDown = (e) => {
     if (!quizStarted || !isComponentMountedRef.current || isSubmitting || submissionResult) return;
     
@@ -485,7 +425,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Prevent right click
   const handleContextMenu = (e) => {
     if (quizStarted && isComponentMountedRef.current) {
       e.preventDefault();
@@ -493,7 +432,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Prevent copy/paste
   const handleCopyPaste = (e) => {
     if (quizStarted && isComponentMountedRef.current) {
       e.preventDefault();
@@ -501,7 +439,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Monitor internet connection
   const handleInternetStatus = () => {
     if (!isComponentMountedRef.current) return;
     
@@ -511,21 +448,16 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Prevent screenshot attempts
   const preventScreenshot = (e) => {
     if (e.key === 'PrintScreen' && quizStarted && isComponentMountedRef.current) {
       addWarning('Screenshot attempted');
     }
   };
 
-  // Fetch quiz data
   useEffect(() => {
     const fetchQuiz = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`http://localhost:5000/api/quizzes/${quizId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await api.get(`/api/quizzes/${quizId}`);
         
         if (isComponentMountedRef.current) {
           const quizData = res.data.quiz;
@@ -545,13 +477,10 @@ const ProctoredQuiz = () => {
     fetchQuiz();
   }, [quizId, navigate]);
 
-  // Timer with pause detection - MODIFIED to not depend on videoReady
   useEffect(() => {
     if (!quizStarted || !quiz || submissionResult || timeLeft <= 0 || isSubmitting) {
       return;
     }
-    
-    console.log('Starting timer with timeLeft:', timeLeft);
     
     let lastTimestamp = Date.now();
     
@@ -590,27 +519,22 @@ const ProctoredQuiz = () => {
         clearInterval(timerRef.current);
       }
     };
-  }, [quizStarted, quiz, submissionResult, isSubmitting]); // Removed videoReady dependency
+  }, [quizStarted, quiz, submissionResult, isSubmitting]);
 
-  // Setup proctoring features when quiz starts - MODIFIED to not depend on videoReady
   useEffect(() => {
     if (quizStarted && isComponentMountedRef.current) {
-      console.log('Quiz started, setting up proctoring...');
-      // Small delay to ensure video is ready
       setTimeout(() => {
         if (isComponentMountedRef.current && quizStarted) {
           setupProctoringFeatures();
         }
       }, 500);
     }
-  }, [quizStarted]); // Removed videoReady dependency
+  }, [quizStarted]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       isComponentMountedRef.current = false;
       
-      // Stop video stream
       if (videoStream) {
         try {
           videoStream.getTracks().forEach(track => {
@@ -623,7 +547,6 @@ const ProctoredQuiz = () => {
         }
       }
       
-      // Close audio context
       if (audioContextRef.current) {
         try {
           if (audioContextRef.current.state !== 'closed') {
@@ -634,15 +557,12 @@ const ProctoredQuiz = () => {
         }
       }
       
-      // Stop face detection
       if (faceDetectionIntervalRef.current) {
         clearInterval(faceDetectionIntervalRef.current);
       }
       
-      // Remove all event listeners
       removeAllEventListeners();
       
-      // Reset body styles
       if (document.body) {
         document.body.style.userSelect = '';
         document.body.style.webkitUserSelect = '';
@@ -650,7 +570,6 @@ const ProctoredQuiz = () => {
         document.body.style.mozUserSelect = '';
       }
       
-      // Safe exit fullscreen
       safeExitFullscreen();
     };
   }, [videoStream]);
@@ -676,24 +595,19 @@ const ProctoredQuiz = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `http://localhost:5000/api/quizzes/submit/${quizId}`,
-        { 
-          answers,
-          proctoringData: {
-            warnings: warnings,
-            tabSwitches: tabSwitchCount,
-            mouseLeaves: mouseLeaveCount,
-            keyViolations: keyPressCount,
-            timeSpent: quiz.timeLimit * 60 - timeLeft,
-            faceDetected: faceDetected,
-            audioLevels: audioLevel,
-            internetIssues: !internetStatus
-          }
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await api.post(`/api/quizzes/submit/${quizId}`, { 
+        answers,
+        proctoringData: {
+          warnings: warnings,
+          tabSwitches: tabSwitchCount,
+          mouseLeaves: mouseLeaveCount,
+          keyViolations: keyPressCount,
+          timeSpent: quiz.timeLimit * 60 - timeLeft,
+          faceDetected: faceDetected,
+          audioLevels: audioLevel,
+          internetIssues: !internetStatus
+        }
+      });
 
       if (isComponentMountedRef.current) {
         setSubmissionResult({
@@ -717,7 +631,6 @@ const ProctoredQuiz = () => {
     }
   };
 
-  // Loading state
   if (!quiz) {
     return (
       <div className="proctored-quiz-container loading">
@@ -727,7 +640,6 @@ const ProctoredQuiz = () => {
     );
   }
 
-  // Start screen (before quiz begins)
   if (!quizStarted) {
     return (
       <div className="proctored-quiz-container start-screen">
@@ -812,11 +724,9 @@ const ProctoredQuiz = () => {
     );
   }
 
-  // Quiz in progress
   if (!submissionResult) {
     return (
       <div className="proctored-quiz-container quiz-active">
-        {/* Hidden canvas for face detection */}
         <canvas ref={canvasRef} style={{ display: 'none' }} />
         
         <div className="quiz-header">
@@ -947,7 +857,6 @@ const ProctoredQuiz = () => {
     );
   }
 
-  // Results screen
   return (
     <div className="proctored-quiz-container result-screen">
       <div className="result-content">

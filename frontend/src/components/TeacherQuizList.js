@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/config';
 import { useNavigate, Link } from 'react-router-dom';
 import './TeacherQuizList.css';
 
@@ -15,20 +15,13 @@ const TeacherQuizList = () => {
 
   const fetchQuizzes = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5000/api/quizzes/my-quizzes', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/api/quizzes/my-quizzes');
       
       setQuizzes(response.data.quizzes || []);
       
-      // Fetch submission stats for each quiz
       const statsPromises = response.data.quizzes.map(async (quiz) => {
         try {
-          const statsRes = await axios.get(
-            `http://localhost:5000/api/quizzes/${quiz._id}/stats`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+          const statsRes = await api.get(`/api/quizzes/${quiz._id}/stats`);
           return { quizId: quiz._id, ...statsRes.data };
         } catch (error) {
           return { quizId: quiz._id, submissions: 0, avgScore: 0 };
@@ -57,10 +50,7 @@ const TeacherQuizList = () => {
     }
     
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/quizzes/${quizId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/api/quizzes/${quizId}`);
       
       setQuizzes(quizzes.filter(q => q._id !== quizId));
       alert('Quiz deleted successfully');

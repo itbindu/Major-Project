@@ -1,4 +1,4 @@
-// src/components/Whiteboard.js - New file
+// src/components/Whiteboard.js
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   PenTool, Eraser, Download, X, Square, Circle, Type, 
@@ -10,8 +10,8 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState('#1a73e8');
   const [brushSize, setBrushSize] = useState(5);
-  const [tool, setTool] = useState('pen'); // pen, eraser, shape, text
-  const [shape, setShape] = useState('rectangle'); // rectangle, circle, line
+  const [tool, setTool] = useState('pen');
+  const [shape, setShape] = useState('rectangle');
   const [notes, setNotes] = useState([]);
   const [showNotes, setShowNotes] = useState(true);
   const [currentNote, setCurrentNote] = useState('');
@@ -23,7 +23,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
   const lastY = useRef(0);
   const isDrawingRef = useRef(false);
 
-  // Initialize canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     canvas.width = canvas.offsetWidth;
@@ -36,7 +35,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     ctx.lineWidth = brushSize;
     ctxRef.current = ctx;
     
-    // Load saved drawings
     const saved = localStorage.getItem(`whiteboard_${meetingId}`);
     if (saved) {
       const img = new Image();
@@ -47,7 +45,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     }
   }, [meetingId]);
 
-  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       const canvas = canvasRef.current;
@@ -73,7 +70,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, [color, brushSize]);
 
-  // Start drawing
   const startDrawing = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -99,7 +95,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     }
   };
 
-  // Draw
   const draw = (e) => {
     if (!isDrawingRef.current || tool === 'text') return;
     
@@ -123,18 +118,15 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     lastY.current = y;
   };
 
-  // Stop drawing
   const stopDrawing = () => {
     isDrawingRef.current = false;
     setIsDrawing(false);
   };
 
-  // Clear canvas
   const clearCanvas = () => {
     ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
-  // Save drawing
   const saveDrawing = () => {
     const dataUrl = canvasRef.current.toDataURL();
     localStorage.setItem(`whiteboard_${meetingId}`, dataUrl);
@@ -148,14 +140,12 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     
     setSavedDrawings(prev => [drawing, ...prev]);
     
-    // Download as image
     const link = document.createElement('a');
     link.download = `whiteboard_${meetingId}_${Date.now()}.png`;
     link.href = dataUrl;
     link.click();
   };
 
-  // Add note
   const addNote = () => {
     if (!currentNote.trim()) return;
     
@@ -172,14 +162,12 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
     setCurrentNote('');
   };
 
-  // Pin note
   const pinNote = (noteId) => {
     setNotes(prev => prev.map(note => 
       note.id === noteId ? { ...note, pinned: !note.pinned } : note
     ));
   };
 
-  // Delete note
   const deleteNote = (noteId) => {
     setNotes(prev => prev.filter(note => note.id !== noteId));
   };
@@ -201,9 +189,7 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
           </button>
           <button 
             className="icon-btn close"
-            onClick={() => {
-              // Close whiteboard (will be handled by parent)
-            }}
+            onClick={() => {}}
           >
             <X size={16} />
           </button>
@@ -211,7 +197,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
       </div>
 
       <div className="whiteboard-content">
-        {/* Drawing Canvas */}
         <div className="canvas-section">
           <div className="canvas-toolbar">
             <div className="tool-group">
@@ -295,7 +280,6 @@ const Whiteboard = ({ meetingId, userId, userName, role, socket }) => {
           />
         </div>
 
-        {/* Notes Section */}
         {showNotes && (
           <div className="notes-section">
             <div className="notes-header">

@@ -10,7 +10,6 @@ const HomePage = () => {
       </div>
 
       <div className="cards">
-        {/* Teacher Card */}
         <div className="card">
           <h2>Teachers</h2>
           <p>
@@ -26,7 +25,6 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Student Card */}
         <div className="card">
           <h2>Students</h2>
           <p>

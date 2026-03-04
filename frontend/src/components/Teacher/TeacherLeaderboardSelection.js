@@ -1,6 +1,6 @@
 // src/components/Teacher/TeacherLeaderboardSelection.js
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../api/config';
 import { useNavigate, Link } from 'react-router-dom';
 import './TeacherLeaderboardSelection.css';
 
@@ -16,23 +16,14 @@ const TeacherLeaderboardSelection = () => {
 
   const fetchQuizzesWithStats = async () => {
     try {
-      const token = localStorage.getItem('token');
-      
-      // Fetch all quizzes created by this teacher
-      const response = await axios.get('http://localhost:5000/api/quizzes/my-quizzes', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/api/quizzes/my-quizzes');
 
       const quizzesData = response.data.quizzes || [];
       
-      // Fetch submission stats for each quiz
       const quizzesWithStats = await Promise.all(
         quizzesData.map(async (quiz) => {
           try {
-            const statsRes = await axios.get(
-              `http://localhost:5000/api/quizzes/${quiz._id}/stats`,
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const statsRes = await api.get(`/api/quizzes/${quiz._id}/stats`);
             return {
               ...quiz,
               submissions: statsRes.data.submissions || 0,

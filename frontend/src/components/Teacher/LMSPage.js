@@ -1,6 +1,6 @@
 // src/components/Teacher/LMSPage.js
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../api/config";
 import { useNavigate } from "react-router-dom";
 import "./LMSPage.css";
 
@@ -8,7 +8,7 @@ const LMSPage = () => {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploadMessage, setUploadMessage] = useState("");
-  const [files, setFiles] = useState([]);           // ← array now
+  const [files, setFiles] = useState([]);
   const [description, setDescription] = useState("");
 
   const navigate = useNavigate();
@@ -19,10 +19,7 @@ const LMSPage = () => {
 
   const fetchUploadedFiles = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get("http://localhost:5000/api/teachers/my-files", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get("/api/teachers/my-files");
       setUploadedFiles(res.data.files || []);
     } catch (err) {
       console.error(err);
@@ -32,7 +29,7 @@ const LMSPage = () => {
   };
 
   const handleFileChange = (e) => {
-    setFiles(Array.from(e.target.files));   // ← store ALL selected files
+    setFiles(Array.from(e.target.files));
   };
 
   const handleUpload = async (e) => {
@@ -47,17 +44,11 @@ const LMSPage = () => {
     formData.append("description", description);
 
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.post(
-        "http://localhost:5000/api/teachers/upload-file",
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const res = await api.post("/api/teachers/upload-file", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       setUploadMessage(res.data.message);
       setFiles([]);
@@ -118,7 +109,7 @@ const LMSPage = () => {
             {uploadedFiles.map((f, i) => (
               <div key={i} className="file-card">
                 <a
-                  href={`http://localhost:5000${f.path}`}
+                  href={`${api.defaults.baseURL}${f.path}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   download={f.filename}

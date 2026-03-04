@@ -1,9 +1,9 @@
 // src/components/Teacher/TeacherDashboard.js
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import axios from "axios";
+import api from "../../api/config"; // Import the configured API instance
 import './TeacherDashboard.css';
-import { Calendar, Clock } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 
 const TeacherDashboard = () => {
   const [registeredStudents, setRegisteredStudents] = useState([]);
@@ -21,12 +21,17 @@ const TeacherDashboard = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      const response = await axios.get("http://localhost:5000/api/teachers/profile", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      
+      const response = await api.get("/api/teachers/profile");
       const fullName = `${response.data.firstName || ''} ${response.data.lastName || ''}`.trim();
       setTeacherName(fullName || 'Teacher');
+      
+      // Store teacherId for later use
+      if (response.data._id) {
+        localStorage.setItem('teacherId', response.data._id);
+      }
     } catch (error) {
+      console.error("Error fetching teacher profile:", error.response?.data || error.message);
       const stored = JSON.parse(localStorage.getItem('teacherUser') || '{}');
       const fullName = `${stored.firstName || ''} ${stored.lastName || ''}`.trim();
       setTeacherName(fullName || 'Teacher');
@@ -35,36 +40,33 @@ const TeacherDashboard = () => {
 
   const fetchRegisteredStudents = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await axios.get("http://localhost:5000/api/teachers/registered-students", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.get("/api/teachers/registered-students");
       if (response.data.success) {
         setRegisteredStudents(response.data.students);
+      } else {
+        setRegisteredStudents(response.data || []);
       }
     } catch (error) {
+      console.error("Error fetching students:", error.response?.data || error.message);
       setMessage('Failed to load students');
     }
   };
 
   const handleApproveStudent = async (studentId) => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await axios.post(
-        "http://localhost:5000/api/teachers/approve-student",
-        { studentId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setMessage(response.data.message);
-      fetchRegisteredStudents();
+      const response = await api.post("/api/teachers/approve-student", { studentId });
+      setMessage(response.data.message || 'Student assigned successfully');
+      fetchRegisteredStudents(); // Refresh the list
     } catch (error) {
-      setMessage('Failed to assign student');
+      console.error("Error approving student:", error.response?.data || error.message);
+      setMessage(error.response?.data?.message || 'Failed to assign student');
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem('teacherUser');
+    localStorage.removeItem('teacherId');
     navigate("/teacher/login");
   };
 
@@ -89,7 +91,6 @@ const TeacherDashboard = () => {
           <span>Create Quiz</span>
         </Link>
         
-        {/* FIXED: Changed from disabled div to working Link */}
         <Link to="/teacher/leaderboard" className="action-card">
           <span className="icon">🏆</span>
           <span>Leaderboard</span>
@@ -100,19 +101,17 @@ const TeacherDashboard = () => {
           <span>LMS – Upload & Manage Files</span>
         </Link>
       </div>
+      
       <div className="dashboard-actions">
-  <div className="dashboard-actions">
-  {/* Existing buttons */}
-  <button 
-    className="dashboard-btn attendance-btn"
-    onClick={() => navigate('/teacher/attendance')}
-  >
-    <Calendar size={20} />
-    Attendance Records
-  </button>
-  {/* Other buttons */}
-</div>
-</div>
+        <button 
+          className="dashboard-btn attendance-btn"
+          onClick={() => navigate('/teacher/attendance')}
+        >
+          <Calendar size={20} />
+          Attendance Records
+        </button>
+      </div>
+
       <button 
         className="toggle-students-btn"
         onClick={() => setShowApprovalPage(!showApprovalPage)}
@@ -129,7 +128,9 @@ const TeacherDashboard = () => {
           ) : (
             <ul className="students-list">
               {registeredStudents.map(student => {
-                const isMine = student.teachers?.some(t => t._id === localStorage.getItem('teacherId'));
+                const teacherId = localStorage.getItem('teacherId');
+                const isMine = student.teachers?.some(t => t._id === teacherId);
+                
                 return (
                   <li key={student._id} className="student-row">
                     <div className="student-info">

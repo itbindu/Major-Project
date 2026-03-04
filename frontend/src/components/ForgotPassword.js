@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
-import "./ForgotPassword.css"; // Adjust path as needed
+import api from "../api/config";
+import "./ForgotPassword.css";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [step, setStep] = useState(1); // 1: Send OTP, 2: Verify OTP, 3: Reset Password
-  const [userType, setUserType] = useState("student"); // Default to student
+  const [step, setStep] = useState(1);
+  const [userType, setUserType] = useState("student");
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
 
@@ -21,8 +21,8 @@ const ForgotPassword = () => {
     if (!email || !isValidEmail(email))
       return alert("Please enter a valid email");
     try {
-      const response = await axios.post(
-        "http://localhost:5000/api/auth/forgot-password/send-otp",
+      const response = await api.post(
+        "/api/auth/forgot-password/send-otp",
         { email, userType }
       );
       setMessage(response.data.message);
@@ -36,8 +36,8 @@ const ForgotPassword = () => {
     e.preventDefault();
     if (!otp) return alert("Please enter the OTP");
     try {
-      const response = await axios.post(
-        "http://localhost:5000/api/auth/forgot-password/verify-otp",
+      const response = await api.post(
+        "/api/auth/forgot-password/verify-otp",
         { email, otp, userType }
       );
       setMessage(response.data.message);
@@ -54,8 +54,8 @@ const ForgotPassword = () => {
         "Password must be 8+ chars, 1 uppercase, 1 number & 1 special char"
       );
     try {
-      const response = await axios.post(
-        "http://localhost:5000/api/auth/forgot-password/reset",
+      const response = await api.post(
+        "/api/auth/forgot-password/reset",
         { email, newPassword, userType }
       );
       setMessage(response.data.message);

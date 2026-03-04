@@ -6,7 +6,12 @@ const { generateAndSendOtp } = require('../services/otpService');
 const authenticateToken = require('../middleware/auth');
 const Meeting = require('../Models/Meeting');
 const router = express.Router();
-
+// Add at the top of studentRoutes.js, after the requires
+const getFrontendUrl = () => {
+  return process.env.NODE_ENV === 'production' 
+    ? 'https://major-project-silk-pi.vercel.app' 
+    : 'http://localhost:3000';
+};
 // Send OTP for student registration
 router.post('/send-otp', async (req, res) => {
   const { email } = req.body;
@@ -60,6 +65,7 @@ router.post('/signup', async (req, res) => {
 });
 
 // Login student
+// Login student
 router.post('/login', async (req, res) => {
   const { emailOrPhone, password } = req.body;
   if (!emailOrPhone || !password) return res.status(400).json({ message: 'Email/Phone and password are required' });
@@ -76,14 +82,17 @@ router.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.status(200).json({ token, userId: user._id });
+    const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    res.status(200).json({ 
+      token, 
+      userId: user._id,
+      frontendUrl: getFrontendUrl() 
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 /// Check approval (true if teachers array has entries)
 router.get('/check-approval', authenticateToken, async (req, res) => {
   try {

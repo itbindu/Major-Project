@@ -4,7 +4,12 @@ const Teacher = require('../Models/Teacher');
 const Student = require('../Models/Student');
 const { sendEmail } = require('../services/emailService');
 const router = express.Router();
-
+// Add at the top of forgotPassword.js
+const getFrontendUrl = () => {
+  return process.env.NODE_ENV === 'production' 
+    ? 'https://major-project-silk-pi.vercel.app' 
+    : 'http://localhost:3000';
+};
 router.post('/forgot-password', async (req, res) => {
   const { emailOrPhone } = req.body;
   if (!emailOrPhone) return res.status(400).json({ success: false, message: 'Email or phone is required' });
@@ -21,7 +26,8 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordExpires = resetPasswordExpires;
     await user.save();
 
-    const resetLink = `http://localhost:3000/reset-password/${resetToken}`;
+    const frontendUrl = getFrontendUrl();
+    const resetLink = `${frontendUrl}/reset-password/${resetToken}`;
     const result = await sendEmail(
       user.email,
       'Password Reset Request',
@@ -36,7 +42,6 @@ router.post('/forgot-password', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
-
 router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ success: false, message: 'Token and new password are required' });
