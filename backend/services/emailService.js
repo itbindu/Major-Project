@@ -1,38 +1,43 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 require('dotenv').config();
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
-transporter.verify((err) => {
-  if (err) {
-    console.error('❌ Email transporter error:', err);
-    process.exit(1);
-  } else {
-    console.log('✅ Email transporter ready');
-  }
-});
-
-const sendEmail = async (to, subject, text) => {
-  const mailOptions = {
-    from: `"Your App" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    text,
-  };
-
+/**
+ * Send email using Brevo API
+ * @param {string} to - Recipient email
+ * @param {string} subject - Email subject
+ * @param {string} htmlContent - HTML content of email
+ * @returns {Promise<Object>} - { success: boolean, messageId?: string, error?: string }
+ */
+const sendEmail = async (to, subject, htmlContent) => {
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent:', info.response);
-    return { success: true, message: 'Email sent successfully', info };
-  } catch (err) {
-    console.error('❌ Email send error:', err.message);
-    return { success: false, message: 'Failed to send email', error: err.message };
+    const response = await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: {
+        name: "Virtual Classroom",
+        email: "noreply@virtualclassroom.com"
+      },
+      to: [{
+        email: to,
+        name: to.split('@')[0]
+      }],
+      subject: subject,
+      htmlContent: htmlContent
+    }, {
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log(`✅ Email sent successfully to ${to}`);
+    return { success: true, messageId: response.data.messageId };
+  } catch (error) {
+    console.error('❌ Brevo email error:', error.response?.data || error.message);
+    return { 
+      success: false, 
+      error: error.response?.data?.message || error.message 
+    };
   }
 };
 
