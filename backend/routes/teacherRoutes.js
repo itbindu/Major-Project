@@ -1,15 +1,15 @@
-// Updated file: backend/routes/teacherRoutes.js - Complete fixed version
+// Updated file: backend/routes/teacherRoutes.js - Complete fixed version with Brevo
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Teacher = require('../Models/Teacher');
 const Student = require('../Models/Student');
 const Meeting = require('../Models/Meeting');
-const nodemailer = require('nodemailer');
 const multer = require('multer');
 const fs = require('fs');
 const { generateAndSendOtp } = require('../services/otpService');
 const authenticateToken = require('../middleware/auth');
+const { sendEmail } = require('../services/emailService'); // ✅ ADDED Brevo email service
 
 const router = express.Router();
 
@@ -73,15 +73,6 @@ const upload = multer({
     fileSize: 200 * 1024 * 1024 // 200MB max file size
   },
   fileFilter: fileFilter
-});
-
-// ============ EMAIL TRANSPORTER ============
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
 });
 
 // ============ OTP ROUTES ============
@@ -242,25 +233,27 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     
     await student.save();
     
-    // Notify student via email
+    // Notify student via email using Brevo
     const teacher = await Teacher.findById(req.user.id);
     const frontendUrl = getFrontendUrl();
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: student.email,
-      subject: `You've been assigned to teacher ${teacher.firstName} ${teacher.lastName}!`,
-      html: `
-        <h2>Dear ${student.firstName} ${student.lastName},</h2>
-        <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
-        <p>You can now access their meetings and learning materials.</p>
-        <p>Total teachers assigned to you: ${student.teachers.length}</p>
-        <p>Login to your dashboard to view new content: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
-        <p>Best regards,<br>Virtual Classroom Team</p>
-      `
-    };
     
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Assignment email sent to ${student.email}`);
+    const htmlContent = `
+      <h2>Dear ${student.firstName} ${student.lastName},</h2>
+      <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
+      <p>You can now access their meetings and learning materials.</p>
+      <p>Total teachers assigned to you: ${student.teachers.length}</p>
+      <p>Login to your dashboard to view new content: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
+      <p>Best regards,<br>Virtual Classroom Team</p>
+    `;
+    
+    // ✅ USING BREVO INSTEAD OF NODEMAILER
+    await sendEmail(
+      student.email,
+      `You've been assigned to teacher ${teacher.firstName} ${teacher.lastName}!`,
+      htmlContent
+    );
+    
+    console.log(`✅ Assignment email sent to ${student.email} via Brevo`);
 
     res.status(200).json({ 
       success: true,
@@ -302,38 +295,39 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
     if (assignedStudents.length > 0) {
       for (const student of assignedStudents) {
         try {
-          const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: student.email,
-            subject: `📅 New Meeting: ${title} from ${teacher.firstName} ${teacher.lastName}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #1a73e8;">New Virtual Classroom Meeting</h2>
-                <p><strong>Dear ${student.firstName} ${student.lastName},</strong></p>
-                <p>Your teacher <strong>${teacher.firstName} ${teacher.lastName}</strong> has created a new meeting:</p>
-                
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                  <h3 style="margin-top: 0; color: #333;">${title}</h3>
-                  ${description ? `<p><strong>Description:</strong> ${description}</p>` : ''}
-                  <p><strong>Meeting ID:</strong> ${meetingId}</p>
-                  <p><strong>Scheduled:</strong> ${new Date(scheduledTime).toLocaleString()}</p>
-                </div>
-                
-                <a href="${meetingLink}" 
-                   style="display: inline-block; background: #1a73e8; color: white; padding: 12px 30px; 
-                          text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">
-                  ➤ Join Meeting
-                </a>
-                
-                <p style="margin-top: 20px; color: #666;">
-                  <small>Link will expire when meeting ends.</small>
-                </p>
+          const htmlContent = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #1a73e8;">New Virtual Classroom Meeting</h2>
+              <p><strong>Dear ${student.firstName} ${student.lastName},</strong></p>
+              <p>Your teacher <strong>${teacher.firstName} ${teacher.lastName}</strong> has created a new meeting:</p>
+              
+              <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0; color: #333;">${title}</h3>
+                ${description ? `<p><strong>Description:</strong> ${description}</p>` : ''}
+                <p><strong>Meeting ID:</strong> ${meetingId}</p>
+                <p><strong>Scheduled:</strong> ${new Date(scheduledTime).toLocaleString()}</p>
               </div>
-            `
-          };
+              
+              <a href="${meetingLink}" 
+                 style="display: inline-block; background: #1a73e8; color: white; padding: 12px 30px; 
+                        text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">
+                ➤ Join Meeting
+              </a>
+              
+              <p style="margin-top: 20px; color: #666;">
+                <small>Link will expire when meeting ends.</small>
+              </p>
+            </div>
+          `;
 
-          await transporter.sendMail(mailOptions);
-          console.log(`📧 Email sent to ${student.email}`);
+          // ✅ USING BREVO INSTEAD OF NODEMAILER
+          await sendEmail(
+            student.email,
+            `📅 New Meeting: ${title} from ${teacher.firstName} ${teacher.lastName}`,
+            htmlContent
+          );
+          
+          console.log(`📧 Email sent to ${student.email} via Brevo`);
           notifiedCount++;
         } catch (emailError) {
           console.error(`Failed to send email to ${student.email}:`, emailError);
