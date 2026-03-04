@@ -34,8 +34,12 @@ const StudentRegister = () => {
     if (!isValidEmail(email)) return alert("Invalid email address.");
     if (!isValidPhone(phoneNumber)) return alert("Enter a valid 10-digit phone number.");
 
+    console.log('📤 Sending OTP request for email:', email); // Debug log
+    
     try {
       const response = await axios.post(`${API_URL}/api/students/send-otp`, { email });
+      console.log('📥 OTP response:', response.data); // Debug log
+      
       if (response.data.success) {
         alert(response.data.message);
         setIsOtpSent(true);
@@ -43,7 +47,7 @@ const StudentRegister = () => {
         alert(response.data.message);
       }
     } catch (error) {
-      console.error("Error sending OTP:", error.response?.data || error.message);
+      console.error("❌ Error sending OTP:", error.response?.data || error.message);
       alert("Failed to send OTP. Try again.");
     }
   };
@@ -52,8 +56,12 @@ const StudentRegister = () => {
     e.preventDefault();
     if (!otp) return alert("Enter the OTP.");
 
+    console.log('🔐 Verifying OTP for email:', email); // Debug log
+    
     try {
       const response = await axios.post(`${API_URL}/api/students/verify-otp`, { email, otp });
+      console.log('📥 Verify OTP response:', response.data); // Debug log
+      
       if (response.data.success) {
         alert("OTP verified! Creating account...");
         handleSignup();
@@ -61,7 +69,7 @@ const StudentRegister = () => {
         alert(response.data.message);
       }
     } catch (error) {
-      console.error("OTP verification failed:", error.response?.data || error.message);
+      console.error("❌ OTP verification failed:", error.response?.data || error.message);
       alert("Invalid OTP. Try again.");
     }
   };
@@ -72,6 +80,8 @@ const StudentRegister = () => {
       return alert("Password must be 8+ chars, 1 uppercase, 1 number & 1 special char.");
     if (password !== confirmPassword) return alert("Passwords do not match.");
 
+    console.log('📝 Creating account for:', email); // Debug log
+    
     try {
       const response = await axios.post(`${API_URL}/api/students/signup`, {
         firstName,
@@ -80,12 +90,14 @@ const StudentRegister = () => {
         phoneNumber,
         password,
       });
+      console.log('📥 Signup response:', response.data); // Debug log
+      
       if (response.status === 200) {
         alert("Account created successfully! Awaiting teacher approval.");
         navigate("/student/login");
       }
     } catch (error) {
-      console.error("Signup error:", error.response?.data || error.message);
+      console.error("❌ Signup error:", error.response?.data || error.message);
       alert(`Signup failed. Try again. Error: ${error.response?.data?.message || error.message}`);
     }
   };
