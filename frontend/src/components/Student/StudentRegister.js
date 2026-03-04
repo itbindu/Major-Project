@@ -18,6 +18,9 @@ const StudentRegister = () => {
 
   const navigate = useNavigate();
 
+  // Get API URL from environment variable
+  const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
   const isValidName = (name) => /^[A-Za-z]{2,}$/.test(name);
   const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const isValidPhone = (phone) => /^[6-9]\d{9}$/.test(phone);
@@ -32,7 +35,7 @@ const StudentRegister = () => {
     if (!isValidPhone(phoneNumber)) return alert("Enter a valid 10-digit phone number.");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/students/send-otp", { email });
+      const response = await axios.post(`${API_URL}/api/students/send-otp`, { email });
       if (response.data.success) {
         alert(response.data.message);
         setIsOtpSent(true);
@@ -50,7 +53,7 @@ const StudentRegister = () => {
     if (!otp) return alert("Enter the OTP.");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/students/verify-otp", { email, otp });
+      const response = await axios.post(`${API_URL}/api/students/verify-otp`, { email, otp });
       if (response.data.success) {
         alert("OTP verified! Creating account...");
         handleSignup();
@@ -70,7 +73,7 @@ const StudentRegister = () => {
     if (password !== confirmPassword) return alert("Passwords do not match.");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/students/signup", {
+      const response = await axios.post(`${API_URL}/api/students/signup`, {
         firstName,
         lastName,
         email,

@@ -11,13 +11,16 @@ const TeacherLogin = () => {
 
   const navigate = useNavigate();
 
+  // Get API URL from environment variable
+  const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!emailOrPhone) return alert("Enter your email or phone.");
     if (!password) return alert("Enter your password.");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/teachers/login", {
+      const response = await axios.post(`${API_URL}/api/teachers/login`, {
         emailOrPhone,
         password,
       });
@@ -39,10 +42,9 @@ const TeacherLogin = () => {
         {/* Left Image Section - Working teacher image */}
         <div className="student-image">
           <img
-  src="https://images.unsplash.com/photo-1492724441997-5dc865305da7?auto=format&fit=crop&w=900&q=80"
-  alt="Teacher teaching in classroom"
-/>
-
+            src="https://images.unsplash.com/photo-1492724441997-5dc865305da7?auto=format&fit=crop&w=900&q=80"
+            alt="Teacher teaching in classroom"
+          />
         </div>
 
         {/* Right Form Section */}

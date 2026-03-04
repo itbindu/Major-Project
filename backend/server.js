@@ -15,7 +15,8 @@ const server = http.createServer(app);
 
 // ================== CORS CONFIG ==================
 const allowedOrigins = [
-  "https://major-project-silk-pi.vercel.app"
+  "https://major-project-silk-pi.vercel.app", // Your Vercel frontend
+  "http://localhost:3000" // For local development
 ];
 
 // CORS middleware for Express routes

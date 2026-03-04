@@ -11,13 +11,16 @@ const StudentLogin = () => {
 
   const navigate = useNavigate();
 
+  // Get API URL from environment variable
+  const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!emailOrPhone) return alert("Enter your email or phone.");
     if (!password) return alert("Enter your password.");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/students/login", {
+      const response = await axios.post(`${API_URL}/api/students/login`, {
         emailOrPhone,
         password,
       });
