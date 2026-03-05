@@ -15,25 +15,21 @@ const server = http.createServer(app);
 
 // ================== CORS CONFIG ==================
 const allowedOrigins = [
-  "https://major-project-silk-pi.vercel.app", // Your Vercel frontend
-  "http://localhost:3000" // For local development
+  "https://major-project-silk-pi.vercel.app",
+  "http://localhost:3000"
 ];
 
-// CORS middleware for Express routes
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+      return callback(new Error('CORS not allowed'), false);
     }
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '50mb' }));
@@ -58,141 +54,258 @@ app.get('/', (req, res) => {
   res.send('🚀 Virtual Classroom Server Running');
 });
 
-// Test endpoint for CORS
-app.get('/test-cors', (req, res) => {
-  res.json({ 
-    message: 'CORS is working!', 
-    origin: req.headers.origin 
-  });
-});
-
-// ================== SOCKET.IO ==================
+// ================== SOCKET.IO with WebRTC Support ==================
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"]
+    methods: ["GET", "POST"],
+    credentials: true
   },
-  transports: ['websocket', 'polling'],
-  allowEIO3: true
+  transports: ['websocket', 'polling']
 });
 
+// Store active meetings
 const meetings = new Map();
-const userSockets = new Map();
+const users = new Map(); // socketId -> user info
 
 io.on('connection', (socket) => {
   console.log('🔵 User connected:', socket.id);
 
+  // ============ MEETING EVENTS ============
   socket.on('join-meeting', ({ meetingId, userId, userName, role }) => {
+    console.log(`👤 ${userName} (${role}) joining meeting: ${meetingId}`);
+    
     socket.join(meetingId);
-    socket.data = { meetingId, userId };
-    userSockets.set(socket.id, { meetingId, userId });
-
-    if (!meetings.has(meetingId)) {
-      meetings.set(meetingId, { participants: [] });
-    }
-
-    const meeting = meetings.get(meetingId);
-
-    const participant = {
+    
+    // Store user info
+    const userInfo = {
       socketId: socket.id,
       userId,
       userName,
       role,
+      meetingId,
       audioEnabled: true,
-      videoEnabled: true
+      videoEnabled: true,
+      joinedAt: new Date()
     };
-
-    meeting.participants.push(participant);
-
-    socket.to(meetingId).emit('user-joined', participant);
-
-    socket.emit('all-users',
-      meeting.participants.filter(p => p.userId !== userId)
-    );
-
-    console.log(`✅ ${userName} joined meeting ${meetingId}`);
+    
+    users.set(socket.id, userInfo);
+    
+    // Store in meetings map
+    if (!meetings.has(meetingId)) {
+      meetings.set(meetingId, new Map());
+    }
+    meetings.get(meetingId).set(socket.id, userInfo);
+    
+    // Get all users in this meeting except current user
+    const meetingUsers = Array.from(meetings.get(meetingId).values())
+      .filter(u => u.userId !== userId);
+    
+    // Send all existing users to the new user
+    socket.emit('all-users', meetingUsers);
+    
+    // Notify others about new user
+    socket.to(meetingId).emit('user-joined', userInfo);
+    
+    console.log(`✅ Total users in meeting ${meetingId}: ${meetings.get(meetingId).size}`);
   });
 
-  socket.on('signal', ({ userToSignal, callerId, signal }) => {
-    io.to(userToSignal).emit('signal', {
-      from: callerId,
-      signal
-    });
-  });
-
-  socket.on('chat-message', ({ meetingId, message }) => {
-    io.to(meetingId).emit('chat-message', {
-      ...message,
-      timestamp: new Date().toLocaleTimeString()
-    });
-  });
-
-  socket.on('leave-meeting', ({ meetingId, userId }) => {
+  // ============ WEBRTC SIGNALING ============
+  socket.on('send-offer', ({ meetingId, targetUserId, offer }) => {
+    console.log(`📤 Offer from ${socket.id} to ${targetUserId}`);
+    
+    // Find target socket
+    let targetSocketId = null;
     const meeting = meetings.get(meetingId);
     if (meeting) {
-      meeting.participants = meeting.participants.filter(p => p.userId !== userId);
-      socket.to(meetingId).emit('user-left', userId);
-
-      if (meeting.participants.length === 0) {
-        meetings.delete(meetingId);
-      }
-    }
-    socket.leave(meetingId);
-  });
-
-  socket.on('disconnect', () => {
-    const { meetingId, userId } = socket.data || {};
-    if (meetingId && userId) {
-      const meeting = meetings.get(meetingId);
-      if (meeting) {
-        meeting.participants = meeting.participants.filter(p => p.userId !== userId);
-        socket.to(meetingId).emit('user-left', userId);
-
-        if (meeting.participants.length === 0) {
-          meetings.delete(meetingId);
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
         }
       }
     }
-    userSockets.delete(socket.id);
-    console.log('🔴 User disconnected:', socket.id);
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-offer', {
+        fromUserId: users.get(socket.id)?.userId,
+        offer
+      });
+    }
   });
-});
 
-// ================== DEBUG UPLOADS ==================
-app.get('/debug-uploads', (req, res) => {
-  const uploadsPath = path.join(__dirname, 'uploads');
+  socket.on('send-answer', ({ meetingId, targetUserId, answer }) => {
+    console.log(`📥 Answer from ${socket.id} to ${targetUserId}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-answer', {
+        fromUserId: users.get(socket.id)?.userId,
+        answer
+      });
+    }
+  });
 
-  if (fs.existsSync(uploadsPath)) {
-    const files = fs.readdirSync(uploadsPath);
-    res.json({ success: true, files });
-  } else {
-    res.json({ success: false, message: "Uploads folder not found" });
-  }
-});
+  socket.on('send-ice-candidate', ({ meetingId, targetUserId, candidate }) => {
+    console.log(`🧊 ICE candidate from ${socket.id} to ${targetUserId}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-ice-candidate', {
+        fromUserId: users.get(socket.id)?.userId,
+        candidate
+      });
+    }
+  });
 
-// ================== ERROR HANDLING MIDDLEWARE ==================
-app.use((err, req, res, next) => {
-  console.error('Error:', err.message);
-  
-  // Handle CORS errors specifically
-  if (err.message.includes('CORS')) {
-    return res.status(403).json({ 
-      error: 'CORS error', 
-      message: 'Origin not allowed',
-      allowedOrigins: allowedOrigins
+  // ============ MEDIA STATE EVENTS ============
+  socket.on('media-state-changed', ({ meetingId, userId, audioEnabled, videoEnabled }) => {
+    console.log(`📹 Media state changed for ${userId}: audio=${audioEnabled}, video=${videoEnabled}`);
+    
+    // Update user info
+    const user = users.get(socket.id);
+    if (user) {
+      user.audioEnabled = audioEnabled;
+      user.videoEnabled = videoEnabled;
+    }
+    
+    // Broadcast to meeting
+    socket.to(meetingId).emit('media-state-changed', {
+      userId,
+      audioEnabled,
+      videoEnabled
     });
-  }
-  
-  res.status(500).json({ 
-    error: 'Server error', 
-    message: err.message 
+  });
+
+  // ============ SCREEN SHARE EVENTS ============
+  socket.on('screen-share-started', ({ meetingId, userId }) => {
+    console.log(`🖥️ Screen share started by ${userId}`);
+    
+    // Update user info
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = true;
+    }
+    
+    socket.to(meetingId).emit('screen-share-started', { userId });
+  });
+
+  socket.on('screen-share-stopped', ({ meetingId, userId }) => {
+    console.log(`🖥️ Screen share stopped by ${userId}`);
+    
+    // Update user info
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = false;
+    }
+    
+    socket.to(meetingId).emit('screen-share-stopped', { userId });
+  });
+
+  // ============ CHAT EVENTS ============
+  socket.on('chat-message', ({ meetingId, message }) => {
+    console.log(`💬 Chat message in ${meetingId} from ${message.userName}`);
+    io.to(meetingId).emit('chat-message', message);
+  });
+
+  // ============ MUTE EVENTS ============
+  socket.on('mute-participant', ({ meetingId, userId }) => {
+    console.log(`🔇 Mute request for ${userId} from ${socket.id}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === userId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('force-mute');
+    }
+  });
+
+  // ============ MEETING END ============
+  socket.on('end-meeting', ({ meetingId }) => {
+    console.log(`⛔ Meeting ended: ${meetingId}`);
+    io.to(meetingId).emit('meeting-ended');
+    
+    // Clean up meeting
+    meetings.delete(meetingId);
+  });
+
+  // ============ LEAVE MEETING ============
+  socket.on('leave-meeting', ({ meetingId, userId }) => {
+    console.log(`👋 User ${userId} leaving meeting ${meetingId}`);
+    
+    // Remove from meetings
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      meeting.delete(socket.id);
+      if (meeting.size === 0) {
+        meetings.delete(meetingId);
+      }
+    }
+    
+    // Remove from users
+    users.delete(socket.id);
+    
+    // Notify others
+    socket.to(meetingId).emit('user-left', userId);
+    socket.leave(meetingId);
+  });
+
+  // ============ DISCONNECT ============
+  socket.on('disconnect', () => {
+    console.log('🔴 User disconnected:', socket.id);
+    
+    const user = users.get(socket.id);
+    if (user) {
+      const { meetingId, userId } = user;
+      
+      // Remove from meetings
+      const meeting = meetings.get(meetingId);
+      if (meeting) {
+        meeting.delete(socket.id);
+        if (meeting.size === 0) {
+          meetings.delete(meetingId);
+        }
+      }
+      
+      // Notify others
+      socket.to(meetingId).emit('user-left', userId);
+      
+      // Remove from users
+      users.delete(socket.id);
+    }
   });
 });
 
 // ================== DATABASE ==================
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/virtual-classroom')
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB error:', err));
 

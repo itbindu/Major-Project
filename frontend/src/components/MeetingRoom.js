@@ -1,11 +1,12 @@
 // src/components/MeetingRoom.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import {
   Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare,
   ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize, Play, Square
+  Maximize, Minimize, Play, Square, Grid3x3, Layout,
+  ChevronLeft, ChevronRight, Settings, MoreVertical
 } from 'lucide-react';
 import './MeetingRoom.css';
 
@@ -13,10 +14,10 @@ const MeetingRoom = ({ role = 'student' }) => {
   const { meetingId } = useParams();
   const navigate = useNavigate();
   
-  // ============ IMPORTANT: YOUR BACKEND URL ON RENDER ============
+  // ============ YOUR BACKEND URL ============
   const BACKEND_URL = 'https://major-project-1-ngux.onrender.com';
   
-  // ============ BASIC STATES ============
+  // ============ STATES ============
   const [userName, setUserName] = useState('');
   const [userId, setUserId] = useState('');
   const [meetingTopic, setMeetingTopic] = useState('Virtual Classroom');
@@ -33,38 +34,42 @@ const MeetingRoom = ({ role = 'student' }) => {
   // Participants
   const [participants, setParticipants] = useState([]);
   const [showParticipants, setShowParticipants] = useState(false);
-  
-  // Chat states
   const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const chatEndRef = useRef(null);
   
-  // Recording states
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState('00:00');
-  const recordingTimerRef = useRef(null);
-  
-  // Leave options
-  const [showLeaveOptions, setShowLeaveOptions] = useState(false);
-  
-  // Link sharing
-  const [linkCopied, setLinkCopied] = useState(false);
+  // UI states
+  const [layoutMode, setLayoutMode] = useState('grid'); // 'grid' or 'speaker'
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showLeaveOptions, setShowLeaveOptions] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   
   // Refs
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const peerConnections = useRef({});
+  const remoteVideoRefs = useRef({});
 
-  // ============ INITIALIZE USER ============
+  // ============ STUN Servers for WebRTC ============
+  const configuration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' }
+    ]
+  };
+
+  // ============ INITIALIZE ============
   useEffect(() => {
-    // Generate unique user ID
     const newUserId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setUserId(newUserId);
     
-    // Get user name
     if (role === 'teacher') {
       const teacherData = JSON.parse(localStorage.getItem('teacherUser') || '{}');
       const fullName = `${teacherData.firstName || ''} ${teacherData.lastName || ''}`.trim();
@@ -74,30 +79,25 @@ const MeetingRoom = ({ role = 'student' }) => {
       setUserName(studentName);
     }
 
-    // Set meeting topic
     const storedTopic = localStorage.getItem(`meetingTopic_${meetingId}`) || 'Virtual Classroom';
     setMeetingTopic(storedTopic);
 
-    console.log('Connecting to backend:', BACKEND_URL);
+    console.log('🔄 Connecting to:', BACKEND_URL);
     
-    // Initialize socket connection to Render backend
     const socket = io(BACKEND_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      timeout: 20000,
-      withCredentials: true
+      timeout: 20000
     });
     
     socketRef.current = socket;
 
-    // Connection event handlers
     socket.on('connect', () => {
-      console.log('✅ Connected to server successfully!');
+      console.log('✅ Connected to server');
       setConnectionStatus('connected');
       
-      // Join meeting room
       socket.emit('join-meeting', {
         meetingId,
         userId: newUserId,
@@ -111,35 +111,56 @@ const MeetingRoom = ({ role = 'student' }) => {
       setConnectionStatus('error');
     });
 
-    socket.on('disconnect', () => {
-      console.log('Disconnected from server');
-      setConnectionStatus('disconnected');
-    });
-
-    // Get all existing users
     socket.on('all-users', (users) => {
-      console.log('All users in meeting:', users);
-      setParticipants(users.filter(u => u.userId !== newUserId));
-      setParticipantCount(users.length);
+      console.log('👥 All users:', users);
+      setParticipants(users);
+      setParticipantCount(users.length + 1);
+      
+      // Create peer connections for all existing users
+      setTimeout(() => {
+        users.forEach(user => {
+          if (user.userId !== newUserId && !peerConnections.current[user.userId]) {
+            createPeerConnection(user.userId);
+          }
+        });
+      }, 1000);
     });
 
     socket.on('user-joined', (user) => {
-      console.log('User joined:', user);
+      console.log('👤 User joined:', user);
       if (user.userId === newUserId) return;
       
       setParticipants(prev => [...prev, user]);
       setParticipantCount(prev => prev + 1);
       
+      if (!peerConnections.current[user.userId]) {
+        createPeerConnection(user.userId);
+      }
+      
       setMessages(prev => [...prev, {
         id: `system-${Date.now()}`,
         type: 'system',
-        text: `${user.userName} joined the meeting`,
+        text: `${user.userName} joined`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
     });
 
+    socket.on('receive-offer', handleReceiveOffer);
+    socket.on('receive-answer', handleReceiveAnswer);
+    socket.on('receive-ice-candidate', handleReceiveICECandidate);
+    
     socket.on('user-left', (leftUserId) => {
-      console.log('User left:', leftUserId);
+      console.log('👋 User left:', leftUserId);
+      
+      if (peerConnections.current[leftUserId]) {
+        peerConnections.current[leftUserId].close();
+        delete peerConnections.current[leftUserId];
+      }
+      
+      if (remoteVideoRefs.current[leftUserId]) {
+        delete remoteVideoRefs.current[leftUserId];
+      }
+      
       setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
       setParticipantCount(prev => prev - 1);
     });
@@ -157,44 +178,202 @@ const MeetingRoom = ({ role = 'student' }) => {
       ));
     });
 
+    socket.on('screen-share-started', (data) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === data.userId ? { ...p, isScreenSharing: true } : p
+      ));
+    });
+
+    socket.on('screen-share-stopped', (data) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === data.userId ? { ...p, isScreenSharing: false } : p
+      ));
+    });
+
+    socket.on('force-mute', () => {
+      if (localStreamRef.current) {
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = false;
+          setMicOn(false);
+        }
+      }
+    });
+
     socket.on('meeting-ended', () => {
-      alert('The meeting has been ended by the host.');
+      alert('Meeting ended by host');
       navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
     });
 
-    // Track attendance
     trackAttendance(newUserId);
 
     return () => {
+      Object.values(peerConnections.current).forEach(pc => pc.close());
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
       if (socketRef.current) {
         socketRef.current.emit('leave-meeting', { meetingId, userId: newUserId });
         socketRef.current.disconnect();
       }
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
     };
   }, [meetingId, role]);
 
-  // ============ TRACK ATTENDANCE ============
-  const trackAttendance = (uid) => {
-    const attendanceRecord = {
-      userId: uid,
-      userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
-      role,
-      joinTime: new Date().toISOString(),
-      meetingId,
-      meetingTopic
-    };
+  // ============ WEBRTC FUNCTIONS ============
+  const createPeerConnection = (targetUserId) => {
+    console.log('Creating peer connection for:', targetUserId);
     
-    const existingAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existingAttendance, attendanceRecord]));
+    const pc = new RTCPeerConnection(configuration);
+    peerConnections.current[targetUserId] = pc;
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current);
+      });
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current.emit('send-ice-candidate', {
+          meetingId,
+          targetUserId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      console.log('Received track from:', targetUserId);
+      const [remoteStream] = event.streams;
+      
+      const videoId = `remote-video-${targetUserId}`;
+      let videoElement = document.getElementById(videoId);
+      
+      if (!videoElement) {
+        videoElement = document.createElement('video');
+        videoElement.id = videoId;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.className = 'remote-video';
+        
+        const tile = document.getElementById(`tile-${targetUserId}`);
+        if (tile) {
+          tile.innerHTML = '';
+          tile.appendChild(videoElement);
+        }
+      }
+      
+      videoElement.srcObject = remoteStream;
+      remoteVideoRefs.current[targetUserId] = videoElement;
+    };
+
+    pc.createOffer()
+      .then(offer => pc.setLocalDescription(offer))
+      .then(() => {
+        socketRef.current.emit('send-offer', {
+          meetingId,
+          targetUserId,
+          offer: pc.localDescription
+        });
+      })
+      .catch(error => console.error('Error creating offer:', error));
+
+    return pc;
   };
 
-  // ============ INITIALIZE LOCAL MEDIA ============
+  const handleReceiveOffer = async ({ fromUserId, offer }) => {
+    console.log('Received offer from:', fromUserId);
+    
+    if (!peerConnections.current[fromUserId]) {
+      const pc = new RTCPeerConnection(configuration);
+      peerConnections.current[fromUserId] = pc;
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, localStreamRef.current);
+        });
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socketRef.current.emit('send-ice-candidate', {
+            meetingId,
+            targetUserId: fromUserId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log('Received track from:', fromUserId);
+        const [remoteStream] = event.streams;
+        
+        const videoId = `remote-video-${fromUserId}`;
+        let videoElement = document.getElementById(videoId);
+        
+        if (!videoElement) {
+          videoElement = document.createElement('video');
+          videoElement.id = videoId;
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.className = 'remote-video';
+          
+          const tile = document.getElementById(`tile-${fromUserId}`);
+          if (tile) {
+            tile.innerHTML = '';
+            tile.appendChild(videoElement);
+          }
+        }
+        
+        videoElement.srcObject = remoteStream;
+        remoteVideoRefs.current[fromUserId] = videoElement;
+      };
+    }
+
+    const pc = peerConnections.current[fromUserId];
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socketRef.current.emit('send-answer', {
+        meetingId,
+        targetUserId: fromUserId,
+        answer: pc.localDescription
+      });
+    } catch (error) {
+      console.error('Error handling offer:', error);
+    }
+  };
+
+  const handleReceiveAnswer = async ({ fromUserId, answer }) => {
+    console.log('Received answer from:', fromUserId);
+    
+    const pc = peerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (error) {
+        console.error('Error handling answer:', error);
+      }
+    }
+  };
+
+  const handleReceiveICECandidate = async ({ fromUserId, candidate }) => {
+    console.log('Received ICE candidate from:', fromUserId);
+    
+    const pc = peerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+      }
+    }
+  };
+
+  // ============ MEDIA FUNCTIONS ============
   useEffect(() => {
     const initLocalStream = async () => {
       try {
@@ -209,7 +388,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           localVideoRef.current.srcObject = stream;
         }
       } catch (error) {
-        console.error('Error accessing media devices:', error);
+        console.error('Error accessing media:', error);
         setCameraOn(false);
         setMicOn(false);
       }
@@ -218,19 +397,6 @@ const MeetingRoom = ({ role = 'student' }) => {
     initLocalStream();
   }, []);
 
-  // ============ MEETING TIMER ============
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const elapsed = Date.now() - meetingStartTime;
-      const minutes = Math.floor(elapsed / 60000);
-      const seconds = Math.floor((elapsed % 60000) / 1000);
-      setMeetingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [meetingStartTime]);
-
-  // ============ MEDIA CONTROLS ============
   const toggleMic = () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -265,7 +431,6 @@ const MeetingRoom = ({ role = 'student' }) => {
     }
   };
 
-  // ============ SCREEN SHARING ============
   const toggleScreenShare = async () => {
     try {
       if (!isScreenSharing) {
@@ -274,15 +439,25 @@ const MeetingRoom = ({ role = 'student' }) => {
           audio: true
         });
         
+        screenStreamRef.current = stream;
+        
+        const videoTrack = stream.getVideoTracks()[0];
+        
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(videoTrack);
+          }
+        });
+        
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         
         setIsScreenSharing(true);
+        setLayoutMode('speaker');
         
-        stream.getVideoTracks()[0].onended = () => {
-          stopScreenShare();
-        };
+        videoTrack.onended = stopScreenShare;
         
         socketRef.current?.emit('screen-share-started', {
           meetingId,
@@ -292,16 +467,32 @@ const MeetingRoom = ({ role = 'student' }) => {
         stopScreenShare();
       }
     } catch (error) {
-      console.error('Screen sharing error:', error);
+      console.error('Screen share error:', error);
     }
   };
 
   const stopScreenShare = () => {
-    if (localStreamRef.current && localVideoRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+    
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      
+      Object.values(peerConnections.current).forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender && videoTrack) {
+          sender.replaceTrack(videoTrack);
+        }
+      });
+      
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
     }
     
     setIsScreenSharing(false);
+    setLayoutMode('grid');
     
     socketRef.current?.emit('screen-share-stopped', {
       meetingId,
@@ -309,7 +500,25 @@ const MeetingRoom = ({ role = 'student' }) => {
     });
   };
 
-  // ============ CHAT FUNCTIONS ============
+  // ============ TIMER ============
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - meetingStartTime;
+      const hours = Math.floor(elapsed / 3600000);
+      const minutes = Math.floor((elapsed % 3600000) / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      
+      setMeetingTime(
+        hours > 0 
+          ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+          : `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+      );
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [meetingStartTime]);
+
+  // ============ CHAT ============
   const sendChatMessage = (e) => {
     e.preventDefault();
     if (!chatMessage.trim() || connectionStatus !== 'connected') return;
@@ -327,39 +536,28 @@ const MeetingRoom = ({ role = 'student' }) => {
     setChatMessage('');
   };
 
-  // ============ AUTO SCROLL CHAT ============
   useEffect(() => {
     if (chatEndRef.current && showChat) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, showChat]);
 
-  // ============ RECORDING FUNCTIONS ============
-  const startRecording = () => {
-    if (role !== 'teacher') return;
+  // ============ ATTENDANCE ============
+  const trackAttendance = (uid) => {
+    const attendanceRecord = {
+      userId: uid,
+      userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
+      role,
+      joinTime: new Date().toISOString(),
+      meetingId,
+      meetingTopic
+    };
     
-    setIsRecording(true);
-    const startTime = Date.now();
-    
-    recordingTimerRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const minutes = Math.floor(elapsed / 60000);
-      const seconds = Math.floor((elapsed % 60000) / 1000);
-      setRecordingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-    }, 1000);
+    const existing = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
+    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existing, attendanceRecord]));
   };
 
-  const stopRecording = () => {
-    if (role !== 'teacher') return;
-    
-    setIsRecording(false);
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-    }
-    setRecordingTime('00:00');
-  };
-
-  // ============ UI TOGGLE FUNCTIONS ============
+  // ============ UI FUNCTIONS ============
   const toggleParticipants = () => {
     setShowParticipants(!showParticipants);
     setShowChat(false);
@@ -392,7 +590,6 @@ const MeetingRoom = ({ role = 'student' }) => {
     socketRef.current?.emit('mute-participant', { meetingId, userId: participantId });
   };
 
-  // ============ LEAVE MEETING FUNCTIONS ============
   const leaveMeetingOnly = () => {
     navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
   };
@@ -408,47 +605,36 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   return (
     <div className="meeting-room">
-      {/* Connection Status Banner */}
+      {/* Connection Banner */}
       {connectionStatus !== 'connected' && (
         <div className={`connection-banner ${connectionStatus}`}>
-          {connectionStatus === 'connecting' && '🔄 Connecting to meeting server...'}
+          {connectionStatus === 'connecting' && '🔄 Connecting to server...'}
           {connectionStatus === 'error' && '❌ Connection failed. Retrying...'}
-          {connectionStatus === 'disconnected' && '🔄 Disconnected. Reconnecting...'}
         </div>
       )}
 
       {/* Header */}
       <header className="meeting-header">
         <div className="header-left">
-          <div className="meeting-info">
-            <h2 className="meeting-title">{meetingTopic}</h2>
-            <span className="meeting-time">
-              <Clock size={16} />
-              {meetingTime}
-            </span>
-          </div>
+          <span className="meeting-time">
+            <Clock size={16} />
+            {meetingTime}
+          </span>
         </div>
 
         <div className="header-center">
+          <div className="meeting-title">{meetingTopic}</div>
           <div className="participant-count">
-            <Users size={18} />
+            <Users size={16} />
             <span>{totalParticipants}</span>
           </div>
         </div>
 
         <div className="header-right">
-          <button 
-            className={`icon-btn ${linkCopied ? 'active' : ''}`}
-            onClick={copyMeetingLink}
-            title="Copy meeting link"
-          >
+          <button className="icon-btn" onClick={copyMeetingLink}>
             {linkCopied ? <Check size={18} /> : <Share2 size={18} />}
           </button>
-          <button 
-            className="icon-btn"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          >
+          <button className="icon-btn" onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
         </div>
@@ -456,10 +642,10 @@ const MeetingRoom = ({ role = 'student' }) => {
 
       {/* Main Content */}
       <main className="meeting-main">
-        <div className={`video-section ${showParticipants || showChat ? 'with-sidebar' : 'full-width'}`}>
-          <div className="video-grid">
+        <div className={`video-container ${showParticipants || showChat ? 'with-sidebar' : ''}`}>
+          <div className={`video-grid ${layoutMode} ${isScreenSharing ? 'screen-share' : ''}`}>
             {/* Local Video */}
-            <div className="video-tile local">
+            <div className="video-tile local" id="local-tile">
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -470,89 +656,114 @@ const MeetingRoom = ({ role = 'student' }) => {
               {!cameraOn && (
                 <div className="video-placeholder">
                   <div className="avatar">
-                    {userName?.charAt(0).toUpperCase() || 'U'}
+                    {userName?.charAt(0).toUpperCase()}
                   </div>
                 </div>
               )}
               <div className="video-label">
-                <span>{userName} {role === 'teacher' ? '(Host)' : ''} (You)</span>
+                <span className="name">{userName} (You)</span>
+                {role === 'teacher' && <span className="host-badge">HOST</span>}
                 {!micOn && <MicOff size={14} />}
               </div>
               {isScreenSharing && (
                 <div className="sharing-badge">
                   <ScreenShare size={12} />
-                  Sharing Screen
+                  Sharing
                 </div>
               )}
             </div>
 
-            {/* Remote Participants */}
+            {/* Remote Videos */}
             {participants.map((participant) => (
-              <div key={participant.userId} className="video-tile remote">
+              <div 
+                key={participant.userId}
+                id={`tile-${participant.userId}`}
+                className={`video-tile remote ${participant.isScreenSharing ? 'screen-sharing' : ''}`}
+              >
                 <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
                   <div className="avatar">
-                    {participant.userName?.charAt(0).toUpperCase() || 'U'}
+                    {participant.userName?.charAt(0).toUpperCase()}
                   </div>
                 </div>
                 <div className="video-label">
-                  <span>{participant.userName}</span>
+                  <span className="name">{participant.userName}</span>
+                  {participant.role === 'teacher' && <span className="host-badge">HOST</span>}
                   {!participant.audioEnabled && <MicOff size={14} />}
                 </div>
+                {participant.isScreenSharing && (
+                  <div className="sharing-badge">
+                    <ScreenShare size={12} />
+                    Sharing
+                  </div>
+                )}
+                {role === 'teacher' && participant.role !== 'teacher' && (
+                  <button 
+                    className="mute-overlay"
+                    onClick={() => muteParticipant(participant.userId)}
+                  >
+                    <VolumeX size={14} />
+                  </button>
+                )}
               </div>
             ))}
+          </div>
+
+          {/* Layout Controls */}
+          <div className="layout-controls">
+            <button 
+              className={`layout-btn ${layoutMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setLayoutMode('grid')}
+            >
+              <Grid3x3 size={18} />
+            </button>
+            <button 
+              className={`layout-btn ${layoutMode === 'speaker' ? 'active' : ''}`}
+              onClick={() => setLayoutMode('speaker')}
+            >
+              <Layout size={18} />
+            </button>
           </div>
         </div>
 
         {/* Participants Sidebar */}
         {showParticipants && (
-          <div className="sidebar">
+          <div className="sidebar participants-sidebar">
             <div className="sidebar-header">
-              <h3>
-                <Users size={18} />
-                Participants ({totalParticipants})
-              </h3>
+              <h3>Participants ({totalParticipants})</h3>
               <button className="close-btn" onClick={toggleParticipants}>
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
-            
             <div className="participants-list">
-              {/* Current User */}
               <div className="participant-item current">
-                <div className="participant-avatar">
+                <div className="avatar-small">
                   {userName.charAt(0).toUpperCase()}
                 </div>
                 <div className="participant-info">
-                  <span className="participant-name">
-                    {userName} (You)
-                    {role === 'teacher' && <span className="host-badge">Host</span>}
-                  </span>
-                  <span className="participant-status">
+                  <span className="name">{userName} (You)</span>
+                  <span className="status">
                     {micOn ? 'Mic on' : 'Muted'} • {cameraOn ? 'Camera on' : 'Camera off'}
                   </span>
                 </div>
               </div>
-              
-              {/* Other Participants */}
-              {participants.map(participant => (
-                <div key={participant.userId} className="participant-item">
-                  <div className="participant-avatar">
-                    {participant.userName?.charAt(0).toUpperCase() || 'U'}
+              {participants.map(p => (
+                <div key={p.userId} className="participant-item">
+                  <div className="avatar-small">
+                    {p.userName?.charAt(0).toUpperCase()}
                   </div>
                   <div className="participant-info">
-                    <span className="participant-name">
-                      {participant.userName}
-                      {participant.role === 'teacher' && <span className="host-badge">Host</span>}
+                    <span className="name">
+                      {p.userName}
+                      {p.role === 'teacher' && <span className="host-tag">HOST</span>}
                     </span>
-                    <span className="participant-status">
-                      {participant.audioEnabled ? 'Mic on' : 'Muted'}
+                    <span className="status">
+                      {p.audioEnabled ? 'Mic on' : 'Muted'}
                     </span>
                   </div>
-                  {role === 'teacher' && participant.role !== 'teacher' && (
+                  {role === 'teacher' && p.role !== 'teacher' && (
                     <button 
-                      className="mute-btn"
-                      onClick={() => muteParticipant(participant.userId)}
-                      title="Mute"
+                      className="mute-small"
+                      onClick={() => muteParticipant(p.userId)}
                     >
                       <VolumeX size={14} />
                     </button>
@@ -565,57 +776,43 @@ const MeetingRoom = ({ role = 'student' }) => {
 
         {/* Chat Sidebar */}
         {showChat && (
-          <div className="sidebar">
+          <div className="sidebar chat-sidebar">
             <div className="sidebar-header">
-              <h3>
-                <MessageSquare size={18} />
-                Chat
-              </h3>
+              <h3>Chat</h3>
               <button className="close-btn" onClick={toggleChat}>
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
-            
             <div className="chat-messages">
-              {messages.map((message) => (
-                <div 
-                  key={message.id} 
-                  className={`message ${message.userId === userId ? 'sent' : 'received'} ${message.type === 'system' ? 'system' : ''}`}
-                >
-                  {message.type !== 'system' && message.userId !== userId && (
-                    <div className="message-sender">{message.userName}</div>
+              {messages.map(msg => (
+                <div key={msg.id} className={`chat-message ${msg.userId === userId ? 'own' : ''} ${msg.type === 'system' ? 'system' : ''}`}>
+                  {msg.type !== 'system' && msg.userId !== userId && (
+                    <div className="message-sender">{msg.userName}</div>
                   )}
-                  <div className="message-content">{message.text}</div>
-                  <div className="message-time">{message.timestamp}</div>
+                  <div className="message-text">{msg.text}</div>
+                  <div className="message-time">{msg.timestamp}</div>
                 </div>
               ))}
               <div ref={chatEndRef} />
             </div>
-            
-            <form onSubmit={sendChatMessage} className="chat-input">
+            <form className="chat-input" onSubmit={sendChatMessage}>
               <input
                 type="text"
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
-                placeholder={connectionStatus === 'connected' ? "Type a message..." : "Connecting..."}
+                placeholder="Type a message..."
                 disabled={connectionStatus !== 'connected'}
               />
-              <button 
-                type="submit" 
-                disabled={!chatMessage.trim() || connectionStatus !== 'connected'}
-              >
-                Send
-              </button>
+              <button type="submit" disabled={!chatMessage.trim()}>Send</button>
             </form>
           </div>
         )}
 
-        {/* Leave Meeting Modal */}
+        {/* Leave Modal */}
         {showLeaveOptions && (
           <div className="modal-overlay">
             <div className="leave-modal">
-              <h3>Leave Meeting</h3>
-              
+              <h2>Leave Meeting</h2>
               <button className="leave-option" onClick={leaveMeetingOnly}>
                 <LogOut size={20} />
                 <div>
@@ -623,17 +820,15 @@ const MeetingRoom = ({ role = 'student' }) => {
                   <span>You can rejoin later</span>
                 </div>
               </button>
-              
               {role === 'teacher' && (
                 <button className="leave-option end" onClick={endMeetingForAll}>
                   <X size={20} />
                   <div>
                     <strong>End meeting for all</strong>
-                    <span>This will close the meeting for everyone</span>
+                    <span>Everyone will be removed</span>
                   </div>
                 </button>
               )}
-              
               <button className="cancel-btn" onClick={() => setShowLeaveOptions(false)}>
                 Cancel
               </button>
@@ -645,70 +840,30 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* Footer */}
       <footer className="meeting-footer">
         <div className="footer-left">
-          <button 
-            className={`control-btn ${!micOn ? 'off' : ''}`}
-            onClick={toggleMic}
-            title={micOn ? 'Mute microphone' : 'Unmute microphone'}
-          >
+          <button className={`control-btn ${!micOn ? 'off' : ''}`} onClick={toggleMic}>
             {micOn ? <Mic size={22} /> : <MicOff size={22} />}
           </button>
-          
-          <button 
-            className={`control-btn ${!cameraOn ? 'off' : ''}`}
-            onClick={toggleCamera}
-            title={cameraOn ? 'Turn off camera' : 'Turn on camera'}
-          >
+          <button className={`control-btn ${!cameraOn ? 'off' : ''}`} onClick={toggleCamera}>
             {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
           </button>
-          
-          <button 
-            className={`control-btn ${isScreenSharing ? 'active' : ''}`}
-            onClick={toggleScreenShare}
-            title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
-          >
+          <button className={`control-btn ${isScreenSharing ? 'active' : ''}`} onClick={toggleScreenShare}>
             <Monitor size={22} />
           </button>
-          
-          <button 
-            className={`control-btn ${showParticipants ? 'active' : ''}`}
-            onClick={toggleParticipants}
-            title="Participants"
-          >
+          <button className={`control-btn ${showParticipants ? 'active' : ''}`} onClick={toggleParticipants}>
             <Users size={22} />
-            {totalParticipants > 0 && (
-              <span className="badge">{totalParticipants}</span>
-            )}
+            {totalParticipants > 0 && <span className="badge">{totalParticipants}</span>}
           </button>
         </div>
 
         <div className="footer-center">
-          <button 
-            className={`control-btn ${showChat ? 'active' : ''}`}
-            onClick={toggleChat}
-            title="Chat"
-          >
+          <button className={`control-btn ${showChat ? 'active' : ''}`} onClick={toggleChat}>
             <MessageSquare size={22} />
-            {unreadMessages > 0 && (
-              <span className="badge">{unreadMessages}</span>
-            )}
+            {unreadMessages > 0 && <span className="badge">{unreadMessages}</span>}
           </button>
-          
-          {role === 'teacher' && (
-            <button 
-              className={`control-btn ${isRecording ? 'recording' : ''}`}
-              onClick={isRecording ? stopRecording : startRecording}
-              title={isRecording ? 'Stop Recording' : 'Start Recording'}
-            >
-              {isRecording ? <Square size={22} /> : <Play size={22} />}
-            </button>
-          )}
         </div>
 
         <div className="footer-right">
-          <button 
-            className="leave-btn"
-            onClick={() => setShowLeaveOptions(true)}
-          >
+          <button className="leave-btn" onClick={() => setShowLeaveOptions(true)}>
             <LogOut size={20} />
             <span>Leave</span>
           </button>
