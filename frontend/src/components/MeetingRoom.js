@@ -6,15 +6,18 @@ import {
   Mic, MicOff, Video, VideoOff, Users, MessageSquare, Grid, PenTool,
   ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
   Maximize, Minimize, PlayCircle, StopCircle, User, ChevronLeft, ChevronRight,
-  Volume2
+  Volume2, LayoutGrid, LayoutList
 } from 'lucide-react';
 import './MeetingRoom.css';
 
-// Simple peer configuration for WebRTC
+// STUN servers for WebRTC
 const configuration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
@@ -36,8 +39,7 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [streamError, setStreamError] = useState('');
   
-  // Peer states
-  const [peers, setPeers] = useState({});
+  // Participants state - stores all participants info
   const [participants, setParticipants] = useState([]);
   
   // UI states
@@ -84,12 +86,13 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [linkCopied, setLinkCopied] = useState(false);
   const meetingLink = `${window.location.origin}/meeting/${meetingId}`;
   
-  // Refs
+  // Refs for WebRTC
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const peerConnections = useRef({});
+  const remoteVideoRefs = useRef({});
 
   // ============ INITIALIZE USER ============
   useEffect(() => {
@@ -110,7 +113,9 @@ const MeetingRoom = ({ role = 'student' }) => {
     // Initialize socket connection
     const socket = io('http://localhost:5000', {
       transports: ['websocket'],
-      reconnection: true
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
     socketRef.current = socket;
 
@@ -128,6 +133,7 @@ const MeetingRoom = ({ role = 'student' }) => {
     socket.on('receive-answer', handleReceiveAnswer);
     socket.on('receive-ice-candidate', handleReceiveICECandidate);
     socket.on('user-left', handleUserLeft);
+    socket.on('all-users', handleAllUsers);
     socket.on('meeting-ended', handleMeetingEnded);
 
     // Chat events
@@ -180,7 +186,9 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     return () => {
       // Clean up all peer connections
-      Object.values(peerConnections.current).forEach(pc => pc.close());
+      Object.values(peerConnections.current).forEach(pc => {
+        if (pc) pc.close();
+      });
       
       // Stop all media tracks
       if (localStreamRef.current) {
@@ -231,7 +239,8 @@ const MeetingRoom = ({ role = 'student' }) => {
           },
           audio: {
             echoCancellation: true,
-            noiseSuppression: true
+            noiseSuppression: true,
+            autoGainControl: true
           }
         });
         
@@ -241,12 +250,14 @@ const MeetingRoom = ({ role = 'student' }) => {
           localVideoRef.current.srcObject = stream;
         }
 
-        // Add tracks to all existing peer connections
-        Object.values(peerConnections.current).forEach(pc => {
-          stream.getTracks().forEach(track => {
-            pc.addTrack(track, stream);
+        // After getting local stream, create connections for all existing participants
+        setTimeout(() => {
+          participants.forEach(participant => {
+            if (participant.userId !== userId && !peerConnections.current[participant.userId]) {
+              createPeerConnection(participant.userId);
+            }
           });
-        });
+        }, 1000);
 
       } catch (error) {
         console.error('Error accessing media devices:', error);
@@ -278,56 +289,169 @@ const MeetingRoom = ({ role = 'student' }) => {
   }, [meetingStartTime]);
 
   // ============ WEBRTC HANDLERS ============
+  const handleAllUsers = (users) => {
+    console.log('All users in meeting:', users);
+    setParticipants(users.filter(u => u.userId !== userId));
+    setParticipantCount(users.length);
+    
+    // Create peer connections for all existing users
+    users.forEach(user => {
+      if (user.userId !== userId && !peerConnections.current[user.userId]) {
+        createPeerConnection(user.userId);
+      }
+    });
+  };
+
   const handleUserJoined = async (user) => {
     if (user.userId === userId) return;
     
+    console.log('User joined:', user);
     setParticipants(prev => [...prev, user]);
     setParticipantCount(prev => prev + 1);
 
     // Create peer connection for new user
-    const pc = createPeerConnection(user.userId);
-    peerConnections.current[user.userId] = pc;
+    if (!peerConnections.current[user.userId]) {
+      createPeerConnection(user.userId);
+    }
+  };
 
-    // Add local stream to peer connection
+  const createPeerConnection = (targetUserId) => {
+    console.log('Creating peer connection for:', targetUserId);
+    
+    const pc = new RTCPeerConnection(configuration);
+    peerConnections.current[targetUserId] = pc;
+
+    // Add local stream tracks to peer connection
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
     }
 
-    // Create and send offer
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current.emit('send-ice-candidate', {
+          meetingId,
+          targetUserId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    // Handle incoming tracks
+    pc.ontrack = (event) => {
+      console.log('Received track from:', targetUserId);
+      const [remoteStream] = event.streams;
       
-      socketRef.current.emit('send-offer', {
-        meetingId,
-        targetUserId: user.userId,
-        offer: pc.localDescription
-      });
-    } catch (error) {
-      console.error('Error creating offer:', error);
-    }
+      // Create or update video element for this peer
+      if (!remoteVideoRefs.current[targetUserId]) {
+        const videoContainer = document.createElement('div');
+        videoContainer.id = `remote-video-${targetUserId}`;
+        videoContainer.className = 'remote-video-container';
+        
+        const videoElement = document.createElement('video');
+        videoElement.id = `video-${targetUserId}`;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.className = 'remote-video';
+        
+        videoContainer.appendChild(videoElement);
+        remoteVideoRefs.current[targetUserId] = videoElement;
+        
+        // Find the video tile and append video
+        const tile = document.getElementById(`tile-${targetUserId}`);
+        if (tile) {
+          tile.appendChild(videoContainer);
+        }
+      }
+      
+      remoteVideoRefs.current[targetUserId].srcObject = remoteStream;
+    };
+
+    // Handle connection state changes
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE connection state for', targetUserId, ':', pc.iceConnectionState);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state for', targetUserId, ':', pc.connectionState);
+    };
+
+    // Create and send offer
+    pc.createOffer()
+      .then(offer => pc.setLocalDescription(offer))
+      .then(() => {
+        socketRef.current.emit('send-offer', {
+          meetingId,
+          targetUserId,
+          offer: pc.localDescription
+        });
+      })
+      .catch(error => console.error('Error creating offer:', error));
+
+    return pc;
   };
 
   const handleReceiveOffer = async ({ fromUserId, offer }) => {
+    console.log('Received offer from:', fromUserId);
+    
     // Create peer connection if doesn't exist
     if (!peerConnections.current[fromUserId]) {
-      peerConnections.current[fromUserId] = createPeerConnection(fromUserId);
-    }
-    
-    const pc = peerConnections.current[fromUserId];
+      const pc = new RTCPeerConnection(configuration);
+      peerConnections.current[fromUserId] = pc;
 
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      
-      // Add local stream
+      // Add local stream tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => {
           pc.addTrack(track, localStreamRef.current);
         });
       }
 
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socketRef.current.emit('send-ice-candidate', {
+            meetingId,
+            targetUserId: fromUserId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      // Handle incoming tracks
+      pc.ontrack = (event) => {
+        console.log('Received track from:', fromUserId);
+        const [remoteStream] = event.streams;
+        
+        if (!remoteVideoRefs.current[fromUserId]) {
+          const videoContainer = document.createElement('div');
+          videoContainer.id = `remote-video-${fromUserId}`;
+          videoContainer.className = 'remote-video-container';
+          
+          const videoElement = document.createElement('video');
+          videoElement.id = `video-${fromUserId}`;
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.className = 'remote-video';
+          
+          videoContainer.appendChild(videoElement);
+          remoteVideoRefs.current[fromUserId] = videoElement;
+          
+          const tile = document.getElementById(`tile-${fromUserId}`);
+          if (tile) {
+            tile.appendChild(videoContainer);
+          }
+        }
+        
+        remoteVideoRefs.current[fromUserId].srcObject = remoteStream;
+      };
+    }
+
+    const pc = peerConnections.current[fromUserId];
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -342,6 +466,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleReceiveAnswer = async ({ fromUserId, answer }) => {
+    console.log('Received answer from:', fromUserId);
+    
     const pc = peerConnections.current[fromUserId];
     if (pc) {
       try {
@@ -353,6 +479,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleReceiveICECandidate = async ({ fromUserId, candidate }) => {
+    console.log('Received ICE candidate from:', fromUserId);
+    
     const pc = peerConnections.current[fromUserId];
     if (pc) {
       try {
@@ -364,10 +492,17 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleUserLeft = (leftUserId) => {
+    console.log('User left:', leftUserId);
+    
     // Close and remove peer connection
     if (peerConnections.current[leftUserId]) {
       peerConnections.current[leftUserId].close();
       delete peerConnections.current[leftUserId];
+    }
+    
+    // Remove remote video element
+    if (remoteVideoRefs.current[leftUserId]) {
+      delete remoteVideoRefs.current[leftUserId];
     }
     
     // Remove from participants list
@@ -386,45 +521,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         : record
     );
     localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
-  };
-
-  const createPeerConnection = (targetUserId) => {
-    const pc = new RTCPeerConnection(configuration);
-
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current.emit('send-ice-candidate', {
-          meetingId,
-          targetUserId,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    // Handle incoming tracks
-    pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      
-      // Create or update video element for this peer
-      const videoContainer = document.getElementById(`remote-video-${targetUserId}`);
-      if (videoContainer) {
-        const videoElement = document.createElement('video');
-        videoElement.srcObject = remoteStream;
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.className = 'remote-video';
-        videoContainer.innerHTML = '';
-        videoContainer.appendChild(videoElement);
-      }
-    };
-
-    // Handle connection state changes
-    pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-    };
-
-    return pc;
   };
 
   // ============ MEDIA CONTROLS ============
@@ -961,13 +1057,14 @@ const MeetingRoom = ({ role = 'student' }) => {
                 </div>
               </div>
 
-              {/* Remote Participants */}
+              {/* Remote Participants - Each gets a video tile */}
               {participants.map((participant) => (
                 <div 
-                  key={participant.userId} 
-                  id={`remote-video-${participant.userId}`}
+                  key={participant.userId}
+                  id={`tile-${participant.userId}`}
                   className={`video-tile remote ${participant.isScreenSharing ? 'screen-sharing-active' : ''}`}
                 >
+                  {/* Video will be inserted here by WebRTC */}
                   <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
                     <div className="avatar-large">
                       {participant.userName?.charAt(0).toUpperCase() || 'U'}
