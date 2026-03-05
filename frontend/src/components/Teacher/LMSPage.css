@@ -1,0 +1,150 @@
+.lms-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 30px 20px;
+}
+
+.lms-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.lms-header h1 {
+  margin: 0;
+  color: #333;
+}
+
+.back-btn {
+  padding: 10px 20px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+}
+
+.upload-section {
+  background: #f8f9fa;
+  padding: 24px;
+  border-radius: 10px;
+  margin-bottom: 40px;
+  border: 1px solid #e0e0e0;
+}
+
+.upload-form {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.file-input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  min-width: 300px;
+}
+
+.upload-button {
+  padding: 12px 28px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.upload-button:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+.upload-status.success {
+  color: #28a745;
+  font-weight: 500;
+  margin-top: 12px;
+}
+
+.upload-status.error {
+  color: #dc3545;
+  margin-top: 12px;
+}
+
+.description-input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 16px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  resize: vertical;
+}
+
+.file-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-description {
+  margin: 8px 0 4px;
+  color: #444;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.files-section h2 {
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.file-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.file-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  transition: box-shadow 0.2s;
+}
+
+.file-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.file-name {
+  display: block;
+  font-size: 1.1rem;
+  color: #1e88e5;
+  text-decoration: none;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.file-name:hover {
+  text-decoration: underline;
+}
+
+.file-meta {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.loading, .no-files {
+  text-align: center;
+  color: #666;
+  padding: 40px 0;
+  font-size: 1.1rem;
+}
