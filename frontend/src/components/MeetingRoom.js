@@ -1,12 +1,11 @@
 // src/components/MeetingRoom.js
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import {
   Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare,
   ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize, Play, Square, Grid3x3, Layout,
-  ChevronLeft, ChevronRight, Settings, MoreVertical
+  Maximize, Minimize
 } from 'lucide-react';
 import './MeetingRoom.css';
 
@@ -14,8 +13,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   const { meetingId } = useParams();
   const navigate = useNavigate();
   
-  // ============ YOUR BACKEND URL ============
-  const BACKEND_URL = 'https://major-project-1-ngux.onrender.com';
+  // ============ USE ENVIRONMENT VARIABLE ============
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://major-project-1-ngux.onrender.com';
   
   // ============ STATES ============
   const [userName, setUserName] = useState('');
@@ -40,7 +39,6 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [unreadMessages, setUnreadMessages] = useState(0);
   
   // UI states
-  const [layoutMode, setLayoutMode] = useState('grid'); // 'grid' or 'speaker'
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showLeaveOptions, setShowLeaveOptions] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -52,9 +50,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   const screenStreamRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnections = useRef({});
-  const remoteVideoRefs = useRef({});
 
-  // ============ STUN Servers for WebRTC ============
+  // STUN Servers
   const configuration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -84,12 +81,14 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     console.log('🔄 Connecting to:', BACKEND_URL);
     
+    // IMPORTANT: Use the BACKEND_URL, not localhost
     const socket = io(BACKEND_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      timeout: 20000
+      timeout: 20000,
+      withCredentials: true
     });
     
     socketRef.current = socket;
@@ -116,7 +115,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       setParticipants(users);
       setParticipantCount(users.length + 1);
       
-      // Create peer connections for all existing users
       setTimeout(() => {
         users.forEach(user => {
           if (user.userId !== newUserId && !peerConnections.current[user.userId]) {
@@ -136,13 +134,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       if (!peerConnections.current[user.userId]) {
         createPeerConnection(user.userId);
       }
-      
-      setMessages(prev => [...prev, {
-        id: `system-${Date.now()}`,
-        type: 'system',
-        text: `${user.userName} joined`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
     });
 
     socket.on('receive-offer', handleReceiveOffer);
@@ -155,10 +146,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       if (peerConnections.current[leftUserId]) {
         peerConnections.current[leftUserId].close();
         delete peerConnections.current[leftUserId];
-      }
-      
-      if (remoteVideoRefs.current[leftUserId]) {
-        delete remoteVideoRefs.current[leftUserId];
       }
       
       setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
@@ -176,28 +163,6 @@ const MeetingRoom = ({ role = 'student' }) => {
           ? { ...p, audioEnabled: data.audioEnabled, videoEnabled: data.videoEnabled }
           : p
       ));
-    });
-
-    socket.on('screen-share-started', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId ? { ...p, isScreenSharing: true } : p
-      ));
-    });
-
-    socket.on('screen-share-stopped', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId ? { ...p, isScreenSharing: false } : p
-      ));
-    });
-
-    socket.on('force-mute', () => {
-      if (localStreamRef.current) {
-        const audioTrack = localStreamRef.current.getAudioTracks()[0];
-        if (audioTrack) {
-          audioTrack.enabled = false;
-          setMicOn(false);
-        }
-      }
     });
 
     socket.on('meeting-ended', () => {
@@ -264,7 +229,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       }
       
       videoElement.srcObject = remoteStream;
-      remoteVideoRefs.current[targetUserId] = videoElement;
     };
 
     pc.createOffer()
@@ -326,7 +290,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         }
         
         videoElement.srcObject = remoteStream;
-        remoteVideoRefs.current[fromUserId] = videoElement;
       };
     }
 
@@ -431,88 +394,13 @@ const MeetingRoom = ({ role = 'student' }) => {
     }
   };
 
-  const toggleScreenShare = async () => {
-    try {
-      if (!isScreenSharing) {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true
-        });
-        
-        screenStreamRef.current = stream;
-        
-        const videoTrack = stream.getVideoTracks()[0];
-        
-        Object.values(peerConnections.current).forEach(pc => {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (sender) {
-            sender.replaceTrack(videoTrack);
-          }
-        });
-        
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
-        
-        setIsScreenSharing(true);
-        setLayoutMode('speaker');
-        
-        videoTrack.onended = stopScreenShare;
-        
-        socketRef.current?.emit('screen-share-started', {
-          meetingId,
-          userId
-        });
-      } else {
-        stopScreenShare();
-      }
-    } catch (error) {
-      console.error('Screen share error:', error);
-    }
-  };
-
-  const stopScreenShare = () => {
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      
-      Object.values(peerConnections.current).forEach(pc => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender && videoTrack) {
-          sender.replaceTrack(videoTrack);
-        }
-      });
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
-      }
-    }
-    
-    setIsScreenSharing(false);
-    setLayoutMode('grid');
-    
-    socketRef.current?.emit('screen-share-stopped', {
-      meetingId,
-      userId
-    });
-  };
-
   // ============ TIMER ============
   useEffect(() => {
     const timer = setInterval(() => {
       const elapsed = Date.now() - meetingStartTime;
-      const hours = Math.floor(elapsed / 3600000);
-      const minutes = Math.floor((elapsed % 3600000) / 60000);
+      const minutes = Math.floor(elapsed / 60000);
       const seconds = Math.floor((elapsed % 60000) / 1000);
-      
-      setMeetingTime(
-        hours > 0 
-          ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-          : `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-      );
+      setMeetingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -643,7 +531,7 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* Main Content */}
       <main className="meeting-main">
         <div className={`video-container ${showParticipants || showChat ? 'with-sidebar' : ''}`}>
-          <div className={`video-grid ${layoutMode} ${isScreenSharing ? 'screen-share' : ''}`}>
+          <div className="video-grid">
             {/* Local Video */}
             <div className="video-tile local" id="local-tile">
               <video
@@ -665,12 +553,6 @@ const MeetingRoom = ({ role = 'student' }) => {
                 {role === 'teacher' && <span className="host-badge">HOST</span>}
                 {!micOn && <MicOff size={14} />}
               </div>
-              {isScreenSharing && (
-                <div className="sharing-badge">
-                  <ScreenShare size={12} />
-                  Sharing
-                </div>
-              )}
             </div>
 
             {/* Remote Videos */}
@@ -678,7 +560,7 @@ const MeetingRoom = ({ role = 'student' }) => {
               <div 
                 key={participant.userId}
                 id={`tile-${participant.userId}`}
-                className={`video-tile remote ${participant.isScreenSharing ? 'screen-sharing' : ''}`}
+                className="video-tile remote"
               >
                 <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
                   <div className="avatar">
@@ -690,12 +572,6 @@ const MeetingRoom = ({ role = 'student' }) => {
                   {participant.role === 'teacher' && <span className="host-badge">HOST</span>}
                   {!participant.audioEnabled && <MicOff size={14} />}
                 </div>
-                {participant.isScreenSharing && (
-                  <div className="sharing-badge">
-                    <ScreenShare size={12} />
-                    Sharing
-                  </div>
-                )}
                 {role === 'teacher' && participant.role !== 'teacher' && (
                   <button 
                     className="mute-overlay"
@@ -706,22 +582,6 @@ const MeetingRoom = ({ role = 'student' }) => {
                 )}
               </div>
             ))}
-          </div>
-
-          {/* Layout Controls */}
-          <div className="layout-controls">
-            <button 
-              className={`layout-btn ${layoutMode === 'grid' ? 'active' : ''}`}
-              onClick={() => setLayoutMode('grid')}
-            >
-              <Grid3x3 size={18} />
-            </button>
-            <button 
-              className={`layout-btn ${layoutMode === 'speaker' ? 'active' : ''}`}
-              onClick={() => setLayoutMode('speaker')}
-            >
-              <Layout size={18} />
-            </button>
           </div>
         </div>
 
@@ -845,9 +705,6 @@ const MeetingRoom = ({ role = 'student' }) => {
           </button>
           <button className={`control-btn ${!cameraOn ? 'off' : ''}`} onClick={toggleCamera}>
             {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
-          </button>
-          <button className={`control-btn ${isScreenSharing ? 'active' : ''}`} onClick={toggleScreenShare}>
-            <Monitor size={22} />
           </button>
           <button className={`control-btn ${showParticipants ? 'active' : ''}`} onClick={toggleParticipants}>
             <Users size={22} />
