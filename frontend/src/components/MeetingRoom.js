@@ -3,10 +3,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import {
-  Mic, MicOff, Video, VideoOff, Users, MessageSquare, Grid, PenTool,
-  ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize, PlayCircle, StopCircle, User, ChevronLeft, ChevronRight,
-  Volume2, LayoutGrid, LayoutList
+  Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare, Grid,
+  PenTool, ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
+  Maximize, Minimize, Play, Square, User
 } from 'lucide-react';
 import './MeetingRoom.css';
 
@@ -39,54 +38,39 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [streamError, setStreamError] = useState('');
   
-  // Participants state - stores all participants info
+  // Participants
   const [participants, setParticipants] = useState([]);
-  
-  // UI states
   const [showParticipants, setShowParticipants] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [showBreakoutRooms, setShowBreakoutRooms] = useState(false);
-  const [showWhiteboard, setShowWhiteboard] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [layoutMode, setLayoutMode] = useState('grid');
-  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Chat states
+  const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const chatEndRef = useRef(null);
   
   // Recording states
+  const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState('00:00');
   const recordingTimerRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const recordedChunksRef = useRef([]);
   
   // Breakout Room states
+  const [showBreakoutRooms, setShowBreakoutRooms] = useState(false);
   const [breakoutRooms, setBreakoutRooms] = useState([]);
-  const [showBreakoutModal, setShowBreakoutModal] = useState(false);
-  const [breakoutRoomName, setBreakoutRoomName] = useState('');
-  const [selectedStudents, setSelectedStudents] = useState([]);
-  const [assignedTeacher, setAssignedTeacher] = useState('');
   const [inBreakoutRoom, setInBreakoutRoom] = useState(false);
   const [currentBreakoutRoom, setCurrentBreakoutRoom] = useState(null);
   
   // Whiteboard states
-  const [whiteboardData, setWhiteboardData] = useState([]);
-  const [currentTool, setCurrentTool] = useState('pen');
-  const [currentColor, setCurrentColor] = useState('#000000');
-  const canvasRef = useRef(null);
-  const isDrawingRef = useRef(false);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
   
   // Leave options
   const [showLeaveOptions, setShowLeaveOptions] = useState(false);
   
   // Link sharing
   const [linkCopied, setLinkCopied] = useState(false);
-  const meetingLink = `${window.location.origin}/meeting/${meetingId}`;
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
-  // Refs for WebRTC
+  // WebRTC Refs
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -110,12 +94,14 @@ const MeetingRoom = ({ role = 'student' }) => {
       setUserName(studentName);
     }
 
+    // Set meeting topic
+    const storedTopic = localStorage.getItem(`meetingTopic_${meetingId}`) || 'Virtual Classroom';
+    setMeetingTopic(storedTopic);
+
     // Initialize socket connection
     const socket = io('http://localhost:5000', {
       transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnection: true
     });
     socketRef.current = socket;
 
@@ -127,59 +113,86 @@ const MeetingRoom = ({ role = 'student' }) => {
       role
     });
 
-    // Socket event listeners for WebRTC signaling
-    socket.on('user-joined', handleUserJoined);
+    // Socket event listeners
+    socket.on('all-users', (users) => {
+      console.log('All users in meeting:', users);
+      setParticipants(users.filter(u => u.userId !== newUserId));
+      setParticipantCount(users.length);
+      
+      // Create peer connections for all existing users
+      setTimeout(() => {
+        users.forEach(user => {
+          if (user.userId !== newUserId && !peerConnections.current[user.userId]) {
+            createPeerConnection(user.userId);
+          }
+        });
+      }, 1000);
+    });
+
+    socket.on('user-joined', (user) => {
+      console.log('User joined:', user);
+      if (user.userId === newUserId) return;
+      
+      setParticipants(prev => [...prev, user]);
+      setParticipantCount(prev => prev + 1);
+
+      // Create peer connection for new user
+      if (!peerConnections.current[user.userId]) {
+        createPeerConnection(user.userId);
+      }
+    });
+
     socket.on('receive-offer', handleReceiveOffer);
     socket.on('receive-answer', handleReceiveAnswer);
     socket.on('receive-ice-candidate', handleReceiveICECandidate);
-    socket.on('user-left', handleUserLeft);
-    socket.on('all-users', handleAllUsers);
-    socket.on('meeting-ended', handleMeetingEnded);
+    
+    socket.on('user-left', (leftUserId) => {
+      console.log('User left:', leftUserId);
+      
+      if (peerConnections.current[leftUserId]) {
+        peerConnections.current[leftUserId].close();
+        delete peerConnections.current[leftUserId];
+      }
+      
+      if (remoteVideoRefs.current[leftUserId]) {
+        delete remoteVideoRefs.current[leftUserId];
+      }
+      
+      setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
+      setParticipantCount(prev => prev - 1);
+      
+      updateAttendanceOnLeave(leftUserId);
+    });
 
-    // Chat events
     socket.on('chat-message', (message) => {
       setMessages(prev => [...prev, message]);
       if (!showChat) setUnreadMessages(prev => prev + 1);
     });
 
-    // Media state events
-    socket.on('media-state-changed', ({ userId, audioEnabled, videoEnabled }) => {
+    socket.on('media-state-changed', (data) => {
       setParticipants(prev => prev.map(p => 
-        p.userId === userId ? { ...p, audioEnabled, videoEnabled } : p
+        p.userId === data.userId 
+          ? { ...p, audioEnabled: data.audioEnabled, videoEnabled: data.videoEnabled }
+          : p
       ));
     });
 
-    // Screen share events
-    socket.on('screen-share-started', ({ userId }) => {
+    socket.on('screen-share-started', (data) => {
       setParticipants(prev => prev.map(p => 
-        p.userId === userId ? { ...p, isScreenSharing: true } : p
-      ));
-      if (userId !== newUserId) setLayoutMode('speaker');
-    });
-
-    socket.on('screen-share-stopped', ({ userId }) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === userId ? { ...p, isScreenSharing: false } : p
+        p.userId === data.userId ? { ...p, isScreenSharing: true } : p
       ));
     });
 
-    // Breakout room events
-    socket.on('breakout-room-created', setBreakoutRooms);
-    socket.on('assigned-to-breakout', ({ roomId, roomName }) => {
-      setInBreakoutRoom(true);
-      setCurrentBreakoutRoom({ id: roomId, name: roomName });
-    });
-    socket.on('return-to-main', () => {
-      setInBreakoutRoom(false);
-      setCurrentBreakoutRoom(null);
+    socket.on('screen-share-stopped', (data) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === data.userId ? { ...p, isScreenSharing: false } : p
+      ));
     });
 
-    // Whiteboard events
-    socket.on('whiteboard-update', (data) => {
-      setWhiteboardData(prev => [...prev, data]);
-      drawOnCanvas(data);
+    socket.on('meeting-ended', () => {
+      alert('The meeting has been ended by the host.');
+      navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
     });
-    socket.on('whiteboard-clear', clearCanvas);
 
     // Track attendance
     trackAttendance(newUserId);
@@ -190,7 +203,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         if (pc) pc.close();
       });
       
-      // Stop all media tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -198,13 +210,11 @@ const MeetingRoom = ({ role = 'student' }) => {
         screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
       
-      // Leave meeting
       if (socketRef.current) {
         socketRef.current.emit('leave-meeting', { meetingId, userId: newUserId });
         socketRef.current.disconnect();
       }
       
-      // Clear recording timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
@@ -218,11 +228,22 @@ const MeetingRoom = ({ role = 'student' }) => {
       userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
       role,
       joinTime: new Date().toISOString(),
-      meetingId
+      meetingId,
+      meetingTopic
     };
     
     const existingAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
     localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existingAttendance, attendanceRecord]));
+  };
+
+  const updateAttendanceOnLeave = (leftUserId) => {
+    const attendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
+    const updated = attendance.map(record => 
+      record.userId === leftUserId && !record.leaveTime
+        ? { ...record, leaveTime: new Date().toISOString() }
+        : record
+    );
+    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
   };
 
   // ============ INITIALIZE LOCAL MEDIA ============
@@ -239,8 +260,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           },
           audio: {
             echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
+            noiseSuppression: true
           }
         });
         
@@ -249,15 +269,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-
-        // After getting local stream, create connections for all existing participants
-        setTimeout(() => {
-          participants.forEach(participant => {
-            if (participant.userId !== userId && !peerConnections.current[participant.userId]) {
-              createPeerConnection(participant.userId);
-            }
-          });
-        }, 1000);
 
       } catch (error) {
         console.error('Error accessing media devices:', error);
@@ -288,40 +299,14 @@ const MeetingRoom = ({ role = 'student' }) => {
     return () => clearInterval(timer);
   }, [meetingStartTime]);
 
-  // ============ WEBRTC HANDLERS ============
-  const handleAllUsers = (users) => {
-    console.log('All users in meeting:', users);
-    setParticipants(users.filter(u => u.userId !== userId));
-    setParticipantCount(users.length);
-    
-    // Create peer connections for all existing users
-    users.forEach(user => {
-      if (user.userId !== userId && !peerConnections.current[user.userId]) {
-        createPeerConnection(user.userId);
-      }
-    });
-  };
-
-  const handleUserJoined = async (user) => {
-    if (user.userId === userId) return;
-    
-    console.log('User joined:', user);
-    setParticipants(prev => [...prev, user]);
-    setParticipantCount(prev => prev + 1);
-
-    // Create peer connection for new user
-    if (!peerConnections.current[user.userId]) {
-      createPeerConnection(user.userId);
-    }
-  };
-
+  // ============ WEBRTC FUNCTIONS ============
   const createPeerConnection = (targetUserId) => {
     console.log('Creating peer connection for:', targetUserId);
     
     const pc = new RTCPeerConnection(configuration);
     peerConnections.current[targetUserId] = pc;
 
-    // Add local stream tracks to peer connection
+    // Add local stream tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
@@ -344,38 +329,25 @@ const MeetingRoom = ({ role = 'student' }) => {
       console.log('Received track from:', targetUserId);
       const [remoteStream] = event.streams;
       
-      // Create or update video element for this peer
-      if (!remoteVideoRefs.current[targetUserId]) {
-        const videoContainer = document.createElement('div');
-        videoContainer.id = `remote-video-${targetUserId}`;
-        videoContainer.className = 'remote-video-container';
-        
-        const videoElement = document.createElement('video');
-        videoElement.id = `video-${targetUserId}`;
+      // Create video element for this peer
+      const videoId = `remote-video-${targetUserId}`;
+      let videoElement = document.getElementById(videoId);
+      
+      if (!videoElement) {
+        videoElement = document.createElement('video');
+        videoElement.id = videoId;
         videoElement.autoplay = true;
         videoElement.playsInline = true;
         videoElement.className = 'remote-video';
         
-        videoContainer.appendChild(videoElement);
-        remoteVideoRefs.current[targetUserId] = videoElement;
-        
-        // Find the video tile and append video
         const tile = document.getElementById(`tile-${targetUserId}`);
         if (tile) {
-          tile.appendChild(videoContainer);
+          tile.appendChild(videoElement);
         }
       }
       
-      remoteVideoRefs.current[targetUserId].srcObject = remoteStream;
-    };
-
-    // Handle connection state changes
-    pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state for', targetUserId, ':', pc.iceConnectionState);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('Connection state for', targetUserId, ':', pc.connectionState);
+      videoElement.srcObject = remoteStream;
+      remoteVideoRefs.current[targetUserId] = videoElement;
     };
 
     // Create and send offer
@@ -396,19 +368,16 @@ const MeetingRoom = ({ role = 'student' }) => {
   const handleReceiveOffer = async ({ fromUserId, offer }) => {
     console.log('Received offer from:', fromUserId);
     
-    // Create peer connection if doesn't exist
     if (!peerConnections.current[fromUserId]) {
       const pc = new RTCPeerConnection(configuration);
       peerConnections.current[fromUserId] = pc;
 
-      // Add local stream tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => {
           pc.addTrack(track, localStreamRef.current);
         });
       }
 
-      // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           socketRef.current.emit('send-ice-candidate', {
@@ -419,32 +388,28 @@ const MeetingRoom = ({ role = 'student' }) => {
         }
       };
 
-      // Handle incoming tracks
       pc.ontrack = (event) => {
         console.log('Received track from:', fromUserId);
         const [remoteStream] = event.streams;
         
-        if (!remoteVideoRefs.current[fromUserId]) {
-          const videoContainer = document.createElement('div');
-          videoContainer.id = `remote-video-${fromUserId}`;
-          videoContainer.className = 'remote-video-container';
-          
-          const videoElement = document.createElement('video');
-          videoElement.id = `video-${fromUserId}`;
+        const videoId = `remote-video-${fromUserId}`;
+        let videoElement = document.getElementById(videoId);
+        
+        if (!videoElement) {
+          videoElement = document.createElement('video');
+          videoElement.id = videoId;
           videoElement.autoplay = true;
           videoElement.playsInline = true;
           videoElement.className = 'remote-video';
           
-          videoContainer.appendChild(videoElement);
-          remoteVideoRefs.current[fromUserId] = videoElement;
-          
           const tile = document.getElementById(`tile-${fromUserId}`);
           if (tile) {
-            tile.appendChild(videoContainer);
+            tile.appendChild(videoElement);
           }
         }
         
-        remoteVideoRefs.current[fromUserId].srcObject = remoteStream;
+        videoElement.srcObject = remoteStream;
+        remoteVideoRefs.current[fromUserId] = videoElement;
       };
     }
 
@@ -489,38 +454,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         console.error('Error adding ICE candidate:', error);
       }
     }
-  };
-
-  const handleUserLeft = (leftUserId) => {
-    console.log('User left:', leftUserId);
-    
-    // Close and remove peer connection
-    if (peerConnections.current[leftUserId]) {
-      peerConnections.current[leftUserId].close();
-      delete peerConnections.current[leftUserId];
-    }
-    
-    // Remove remote video element
-    if (remoteVideoRefs.current[leftUserId]) {
-      delete remoteVideoRefs.current[leftUserId];
-    }
-    
-    // Remove from participants list
-    setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
-    setParticipantCount(prev => prev - 1);
-    
-    // Update attendance
-    updateAttendanceOnLeave(leftUserId);
-  };
-
-  const updateAttendanceOnLeave = (leftUserId) => {
-    const attendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    const updated = attendance.map(record => 
-      record.userId === leftUserId && !record.leaveTime
-        ? { ...record, leaveTime: new Date().toISOString() }
-        : record
-    );
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
   };
 
   // ============ MEDIA CONTROLS ============
@@ -579,13 +512,11 @@ const MeetingRoom = ({ role = 'student' }) => {
           }
         });
         
-        // Update local video
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         
         setIsScreenSharing(true);
-        setLayoutMode('speaker');
         
         videoTrack.onended = stopScreenShare;
         
@@ -607,7 +538,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       screenStreamRef.current = null;
     }
     
-    // Restore camera video track
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       
@@ -656,250 +586,29 @@ const MeetingRoom = ({ role = 'student' }) => {
     }
   }, [messages, showChat]);
 
-  // ============ WHITEBOARD FUNCTIONS ============
-  useEffect(() => {
-    if (showWhiteboard && canvasRef.current) {
-      initCanvas();
-    }
-  }, [showWhiteboard]);
-
-  const initCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = currentColor;
-  };
-
-  const startDrawing = (e) => {
-    isDrawingRef.current = true;
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    
-    const drawData = {
-      type: 'start',
-      x, y,
-      tool: currentTool,
-      color: currentColor,
-      userId,
-      timestamp: Date.now()
-    };
-    
-    socketRef.current?.emit('whiteboard-draw', { meetingId, data: drawData });
-  };
-
-  const draw = (e) => {
-    if (!isDrawingRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
-    const drawData = {
-      type: 'draw',
-      x, y,
-      tool: currentTool,
-      color: currentColor,
-      userId,
-      timestamp: Date.now()
-    };
-    
-    socketRef.current?.emit('whiteboard-draw', { meetingId, data: drawData });
-  };
-
-  const stopDrawing = () => {
-    isDrawingRef.current = false;
-  };
-
-  const drawOnCanvas = (data) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.strokeStyle = data.color;
-    
-    if (data.type === 'start') {
-      ctx.beginPath();
-      ctx.moveTo(data.x, data.y);
-    } else if (data.type === 'draw') {
-      ctx.lineTo(data.x, data.y);
-      ctx.stroke();
-    }
-  };
-
-  const clearWhiteboard = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setWhiteboardData([]);
-    socketRef.current?.emit('whiteboard-clear', { meetingId });
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  };
-
   // ============ RECORDING FUNCTIONS ============
   const startRecording = () => {
     if (role !== 'teacher') return;
     
-    const stream = isScreenSharing && screenStreamRef.current 
-      ? screenStreamRef.current 
-      : localStreamRef.current;
-      
-    if (!stream) return;
+    setIsRecording(true);
+    const startTime = Date.now();
     
-    recordedChunksRef.current = [];
-    
-    try {
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9,opus'
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
-      };
-      
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Meeting_${meetingTopic}_${new Date().toISOString()}.webm`;
-        a.click();
-      };
-      
-      mediaRecorder.start(1000);
-      setIsRecording(true);
-      
-      const startTime = Date.now();
-      recordingTimerRef.current = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const minutes = Math.floor(elapsed / 60000);
-        const seconds = Math.floor((elapsed % 60000) / 1000);
-        setRecordingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Recording error:', error);
-    }
+    recordingTimerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const minutes = Math.floor(elapsed / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      setRecordingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    }, 1000);
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
-      setRecordingTime('00:00');
-    }
-  };
-
-  // ============ BREAKOUT ROOM FUNCTIONS ============
-  const createBreakoutRoom = () => {
-    if (!breakoutRoomName.trim() || role !== 'teacher') return;
-    
-    const newRoom = {
-      id: `room_${Date.now()}`,
-      name: breakoutRoomName,
-      teacher: assignedTeacher || userName,
-      students: selectedStudents,
-      createdAt: new Date().toISOString()
-    };
-    
-    setBreakoutRooms([...breakoutRooms, newRoom]);
-    setShowBreakoutModal(false);
-    setBreakoutRoomName('');
-    setSelectedStudents([]);
-    setAssignedTeacher('');
-    
-    socketRef.current?.emit('create-breakout-room', {
-      meetingId,
-      room: newRoom
-    });
-  };
-
-  const joinBreakoutRoom = (roomId) => {
-    const room = breakoutRooms.find(r => r.id === roomId);
-    if (room) {
-      socketRef.current?.emit('join-breakout-room', {
-        meetingId,
-        roomId,
-        userId,
-        userName,
-        role
-      });
-    }
-  };
-
-  const leaveBreakoutRoom = () => {
-    socketRef.current?.emit('leave-breakout-room', {
-      meetingId,
-      userId,
-      roomId: currentBreakoutRoom?.id
-    });
-    setInBreakoutRoom(false);
-    setCurrentBreakoutRoom(null);
-  };
-
-  const endBreakoutRooms = () => {
-    socketRef.current?.emit('end-breakout-rooms', { meetingId });
-    setBreakoutRooms([]);
-    setShowBreakoutRooms(false);
-  };
-
-  // ============ LEAVE MEETING FUNCTIONS ============
-  const handleMeetingEnded = () => {
-    alert('The meeting has been ended by the host.');
-    navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
-  };
-
-  const leaveMeetingOnly = () => {
-    // Update attendance
-    updateAttendanceOnLeave(userId);
-    
-    // Clean up
-    if (isRecording && role === 'teacher') stopRecording();
-    if (isScreenSharing) stopScreenShare();
-    
-    navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
-  };
-
-  const endMeetingForAll = () => {
     if (role !== 'teacher') return;
     
-    socketRef.current?.emit('end-meeting', { meetingId });
-    
-    if (isRecording) stopRecording();
-    
-    navigate('/teacher/dashboard');
+    setIsRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+    setRecordingTime('00:00');
   };
 
   // ============ UI TOGGLE FUNCTIONS ============
@@ -944,7 +653,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const copyMeetingLink = () => {
-    navigator.clipboard.writeText(meetingLink);
+    const link = `${window.location.origin}/meeting/${meetingId}`;
+    navigator.clipboard.writeText(link);
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 3000);
   };
@@ -961,11 +671,23 @@ const MeetingRoom = ({ role = 'student' }) => {
     });
   };
 
+  // ============ LEAVE MEETING FUNCTIONS ============
+  const leaveMeetingOnly = () => {
+    updateAttendanceOnLeave(userId);
+    navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
+  };
+
+  const endMeetingForAll = () => {
+    if (role !== 'teacher') return;
+    socketRef.current?.emit('end-meeting', { meetingId });
+    navigate('/teacher/dashboard');
+  };
+
   // ============ RENDER ============
   const totalParticipants = participants.length + 1;
 
   return (
-    <div className={`meeting-room ${inBreakoutRoom ? 'in-breakout' : ''}`}>
+    <div className="meeting-room">
       {/* ============ HEADER ============ */}
       <header className="meeting-header">
         <div className="header-left">
@@ -973,24 +695,16 @@ const MeetingRoom = ({ role = 'student' }) => {
             <h2 className="meeting-title">
               {inBreakoutRoom ? currentBreakoutRoom?.name : meetingTopic}
             </h2>
-            <div className="meeting-details">
-              <span className="meeting-time">
-                <Clock size={14} />
-                {meetingTime}
-              </span>
-              {isRecording && (
-                <span className="recording-status">
-                  <span className="recording-dot"></span>
-                  REC {recordingTime}
-                </span>
-              )}
-            </div>
+            <span className="meeting-time">
+              <Clock size={16} />
+              {meetingTime}
+            </span>
           </div>
         </div>
 
         <div className="header-center">
-          <div className="participant-count-badge">
-            <Users size={16} />
+          <div className="participant-count">
+            <Users size={18} />
             <span>{totalParticipants}</span>
           </div>
         </div>
@@ -1015,401 +729,265 @@ const MeetingRoom = ({ role = 'student' }) => {
 
       {/* ============ MAIN CONTENT ============ */}
       <main className="meeting-main">
-        <div className={`video-grid-area ${
+        <div className={`video-section ${
           showParticipants || showChat || showBreakoutRooms || showWhiteboard 
-            ? 'sidebar-open' 
-            : 'sidebar-closed'
+            ? 'with-sidebar' 
+            : 'full-width'
         }`}>
-          <div className="video-grid-container">
-            <div className={`video-grid ${layoutMode} ${isScreenSharing ? 'screen-sharing' : ''}`}>
-              {/* Local Video */}
-              <div className={`video-tile local ${isScreenSharing ? 'screen-sharing-active' : ''}`}>
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="video-element"
-                />
-                {!cameraOn && (
-                  <div className="video-placeholder">
-                    <div className="avatar-large">
-                      {userName?.charAt(0).toUpperCase() || 'U'}
-                    </div>
+          <div className="video-grid">
+            {/* Local Video */}
+            <div className="video-tile local">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="video-element"
+              />
+              {!cameraOn && (
+                <div className="video-placeholder">
+                  <div className="avatar">
+                    {userName?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                </div>
+              )}
+              <div className="video-label">
+                <span>{userName} {role === 'teacher' ? '(Host)' : ''}</span>
+                {!micOn && <MicOff size={14} />}
+              </div>
+              {isScreenSharing && (
+                <div className="sharing-badge">
+                  <ScreenShare size={12} />
+                  Sharing
+                </div>
+              )}
+            </div>
+
+            {/* Remote Participants */}
+            {participants.map((participant) => (
+              <div 
+                key={participant.userId}
+                id={`tile-${participant.userId}`}
+                className="video-tile remote"
+              >
+                <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
+                  <div className="avatar">
+                    {participant.userName?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                </div>
+                <div className="video-label">
+                  <span>{participant.userName}</span>
+                  {!participant.audioEnabled && <MicOff size={14} />}
+                </div>
+                {participant.isScreenSharing && (
+                  <div className="sharing-badge">
+                    <ScreenShare size={12} />
+                    Sharing
                   </div>
                 )}
-                <div className="video-overlay">
-                  <div className="video-info">
-                    <span className="user-name">
-                      {userName} {!inBreakoutRoom ? '(You)' : ''}
-                    </span>
-                    <div className="media-status">
-                      {!micOn && <MicOff size={14} />}
-                      {role === 'teacher' && <span className="role-badge">Host</span>}
-                    </div>
-                  </div>
-                  {isScreenSharing && (
-                    <div className="screen-sharing-label">
-                      <ScreenShare size={12} />
-                      Sharing Screen
-                    </div>
-                  )}
-                </div>
+                {role === 'teacher' && participant.role !== 'teacher' && (
+                  <button 
+                    className="mute-btn-overlay"
+                    onClick={() => muteParticipant(participant.userId)}
+                    title="Mute"
+                  >
+                    <VolumeX size={14} />
+                  </button>
+                )}
               </div>
-
-              {/* Remote Participants - Each gets a video tile */}
-              {participants.map((participant) => (
-                <div 
-                  key={participant.userId}
-                  id={`tile-${participant.userId}`}
-                  className={`video-tile remote ${participant.isScreenSharing ? 'screen-sharing-active' : ''}`}
-                >
-                  {/* Video will be inserted here by WebRTC */}
-                  <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
-                    <div className="avatar-large">
-                      {participant.userName?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                  </div>
-                  <div className="video-overlay">
-                    <div className="video-info">
-                      <span className="user-name">
-                        {participant.userName}
-                      </span>
-                      <div className="media-status">
-                        {!participant.audioEnabled && <MicOff size={14} />}
-                        {participant.role === 'teacher' && <span className="role-badge">Host</span>}
-                      </div>
-                    </div>
-                    {participant.isScreenSharing && (
-                      <div className="screen-sharing-label">
-                        <ScreenShare size={12} />
-                        Sharing
-                      </div>
-                    )}
-                  </div>
-                  {role === 'teacher' && participant.role !== 'teacher' && (
-                    <button 
-                      className="mute-participant-btn"
-                      onClick={() => muteParticipant(participant.userId)}
-                      title="Mute participant"
-                    >
-                      <VolumeX size={12} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
 
         {/* ============ PARTICIPANTS SIDEBAR ============ */}
         {showParticipants && (
-          <div className="sidebar participants-sidebar">
+          <div className="sidebar">
             <div className="sidebar-header">
               <h3>
                 <Users size={18} />
                 Participants ({totalParticipants})
               </h3>
-              <button className="close-sidebar-btn" onClick={toggleParticipants}>
+              <button className="close-btn" onClick={toggleParticipants}>
                 <X size={16} />
               </button>
             </div>
             
-            <div className="sidebar-content">
-              <div className="participants-list">
-                {/* Current User */}
-                <div className="participant-item current">
+            <div className="participants-list">
+              {/* Current User */}
+              <div className="participant-item current">
+                <div className="participant-avatar">
+                  {userName.charAt(0).toUpperCase()}
+                </div>
+                <div className="participant-info">
+                  <span className="participant-name">
+                    {userName} (You)
+                    {role === 'teacher' && <span className="host-badge">Host</span>}
+                  </span>
+                  <span className="participant-status">
+                    {micOn ? 'Mic on' : 'Muted'} • {cameraOn ? 'Camera on' : 'Camera off'}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Other Participants */}
+              {participants.map(participant => (
+                <div key={participant.userId} className="participant-item">
                   <div className="participant-avatar">
-                    {userName.charAt(0).toUpperCase()}
+                    {participant.userName?.charAt(0).toUpperCase() || 'U'}
                   </div>
                   <div className="participant-info">
                     <span className="participant-name">
-                      {userName} (You)
-                      {role === 'teacher' && <span className="role-tag">Host</span>}
+                      {participant.userName}
+                      {participant.role === 'teacher' && <span className="host-badge">Host</span>}
                     </span>
                     <span className="participant-status">
-                      {micOn ? 'Mic on' : 'Muted'} • {cameraOn ? 'Camera on' : 'Camera off'}
+                      {participant.audioEnabled ? 'Mic on' : 'Muted'}
                     </span>
                   </div>
+                  {role === 'teacher' && participant.role !== 'teacher' && (
+                    <button 
+                      className="mute-btn"
+                      onClick={() => muteParticipant(participant.userId)}
+                      title="Mute"
+                    >
+                      <VolumeX size={14} />
+                    </button>
+                  )}
                 </div>
-                
-                {/* Other Participants */}
-                {participants.map(participant => (
-                  <div key={participant.userId} className="participant-item">
-                    <div className="participant-avatar">
-                      {participant.userName?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div className="participant-info">
-                      <span className="participant-name">
-                        {participant.userName}
-                        {participant.role === 'teacher' && <span className="role-tag">Host</span>}
-                      </span>
-                      <span className="participant-status">
-                        {participant.audioEnabled ? 'Mic on' : 'Muted'}
-                      </span>
-                    </div>
-                    {role === 'teacher' && participant.role !== 'teacher' && (
-                      <button 
-                        className="mute-btn-small"
-                        onClick={() => muteParticipant(participant.userId)}
-                        title="Mute"
-                      >
-                        <VolumeX size={12} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {role === 'teacher' && participants.length > 0 && (
-                <div className="participant-controls-section">
-                  <button className="mute-all-btn" onClick={muteAllParticipants}>
-                    <VolumeX size={14} />
-                    Mute All
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
+
+            {role === 'teacher' && participants.length > 0 && (
+              <button className="mute-all-btn" onClick={muteAllParticipants}>
+                <VolumeX size={14} />
+                Mute All
+              </button>
+            )}
           </div>
         )}
 
         {/* ============ CHAT SIDEBAR ============ */}
         {showChat && (
-          <div className="sidebar chat-sidebar">
+          <div className="sidebar">
             <div className="sidebar-header">
               <h3>
                 <MessageSquare size={18} />
                 Chat
               </h3>
-              <button className="close-sidebar-btn" onClick={toggleChat}>
+              <button className="close-btn" onClick={toggleChat}>
                 <X size={16} />
               </button>
             </div>
             
-            <div className="chat-messages-container">
-              <div className="chat-messages">
-                {messages.map((message) => (
-                  <div 
-                    key={message.id} 
-                    className={`message ${message.userId === userId ? 'sent' : 'received'}`}
-                  >
-                    {message.userId !== userId && (
-                      <div className="message-sender">{message.userName}</div>
-                    )}
-                    <div className="message-content">{message.text}</div>
-                    <div className="message-time">{message.timestamp}</div>
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
+            <div className="chat-messages">
+              {messages.map((message) => (
+                <div 
+                  key={message.id} 
+                  className={`message ${message.userId === userId ? 'sent' : 'received'}`}
+                >
+                  {message.userId !== userId && (
+                    <div className="message-sender">{message.userName}</div>
+                  )}
+                  <div className="message-content">{message.text}</div>
+                  <div className="message-time">{message.timestamp}</div>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
             </div>
             
-            <div className="chat-input-area">
-              <form onSubmit={sendChatMessage} className="chat-input-form">
-                <input
-                  type="text"
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  placeholder="Type a message..."
-                />
-                <button type="submit" className="send-btn" disabled={!chatMessage.trim()}>
-                  Send
-                </button>
-              </form>
-            </div>
+            <form onSubmit={sendChatMessage} className="chat-input">
+              <input
+                type="text"
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                placeholder="Type a message..."
+              />
+              <button type="submit" disabled={!chatMessage.trim()}>
+                Send
+              </button>
+            </form>
           </div>
         )}
 
         {/* ============ BREAKOUT ROOMS SIDEBAR ============ */}
         {showBreakoutRooms && role === 'teacher' && (
-          <div className="sidebar breakout-sidebar">
+          <div className="sidebar">
             <div className="sidebar-header">
               <h3>
                 <Grid size={18} />
                 Breakout Rooms
               </h3>
-              <button className="close-sidebar-btn" onClick={toggleBreakoutRooms}>
+              <button className="close-btn" onClick={toggleBreakoutRooms}>
                 <X size={16} />
               </button>
             </div>
             
-            <div className="sidebar-content">
-              <button 
-                className="create-breakout-btn"
-                onClick={() => setShowBreakoutModal(true)}
-              >
-                + Create Breakout Room
+            <div className="breakout-content">
+              <button className="create-room-btn" onClick={() => {
+                const name = prompt('Enter room name:');
+                if (name) {
+                  const newRoom = {
+                    id: `room_${Date.now()}`,
+                    name,
+                    teacher: userName,
+                    students: []
+                  };
+                  setBreakoutRooms([...breakoutRooms, newRoom]);
+                  socketRef.current?.emit('create-breakout-room', { meetingId, room: newRoom });
+                }
+              }}>
+                + Create Room
               </button>
               
-              <div className="breakout-rooms-list">
+              <div className="rooms-list">
                 {breakoutRooms.map(room => (
-                  <div key={room.id} className="breakout-room-item">
-                    <div className="breakout-room-info">
+                  <div key={room.id} className="room-item">
+                    <div>
                       <h4>{room.name}</h4>
                       <p>Teacher: {room.teacher}</p>
-                      <p>Students: {room.students.length}</p>
                     </div>
-                    <button 
-                      className="join-breakout-btn"
-                      onClick={() => joinBreakoutRoom(room.id)}
-                    >
+                    <button onClick={() => {
+                      socketRef.current?.emit('join-breakout-room', {
+                        meetingId,
+                        roomId: room.id,
+                        userId,
+                        userName,
+                        role
+                      });
+                      setInBreakoutRoom(true);
+                      setCurrentBreakoutRoom(room);
+                    }}>
                       Join
                     </button>
                   </div>
                 ))}
               </div>
-              
-              {breakoutRooms.length > 0 && (
-                <button className="end-breakout-btn" onClick={endBreakoutRooms}>
-                  Close All Rooms
-                </button>
-              )}
             </div>
           </div>
         )}
 
         {/* ============ WHITEBOARD SIDEBAR ============ */}
         {showWhiteboard && (
-          <div className="sidebar whiteboard-sidebar">
+          <div className="sidebar whiteboard">
             <div className="sidebar-header">
               <h3>
                 <PenTool size={18} />
                 Whiteboard
               </h3>
-              <button className="close-sidebar-btn" onClick={toggleWhiteboard}>
+              <button className="close-btn" onClick={toggleWhiteboard}>
                 <X size={16} />
               </button>
             </div>
             
             <div className="whiteboard-toolbar">
-              <button 
-                className={`tool-btn ${currentTool === 'pen' ? 'active' : ''}`}
-                onClick={() => setCurrentTool('pen')}
-              >
-                Pen
-              </button>
-              <button 
-                className={`tool-btn ${currentTool === 'eraser' ? 'active' : ''}`}
-                onClick={() => setCurrentTool('eraser')}
-              >
-                Eraser
-              </button>
-              <input
-                type="color"
-                value={currentColor}
-                onChange={(e) => setCurrentColor(e.target.value)}
-                className="color-picker"
-              />
-              <button className="tool-btn clear-btn" onClick={clearWhiteboard}>
-                Clear
-              </button>
+              <button className="tool-btn active">Pen</button>
+              <button className="tool-btn">Eraser</button>
+              <input type="color" defaultValue="#000000" />
+              <button className="tool-btn">Clear</button>
             </div>
             
-            <div className="whiteboard-container">
-              <canvas
-                ref={canvasRef}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                className="whiteboard-canvas"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ============ BREAKOUT ROOM CREATION MODAL ============ */}
-        {showBreakoutModal && role === 'teacher' && (
-          <div className="modal-overlay">
-            <div className="modal">
-              <h3>Create Breakout Room</h3>
-              
-              <div className="modal-form">
-                <div className="form-group">
-                  <label>Room Name</label>
-                  <input
-                    type="text"
-                    value={breakoutRoomName}
-                    onChange={(e) => setBreakoutRoomName(e.target.value)}
-                    placeholder="Enter room name"
-                  />
-                </div>
-                
-                <div className="form-group">
-                  <label>Assign Teacher</label>
-                  <select 
-                    value={assignedTeacher}
-                    onChange={(e) => setAssignedTeacher(e.target.value)}
-                  >
-                    <option value="">Select teacher</option>
-                    <option value={userName}>{userName} (You)</option>
-                    {participants
-                      .filter(p => p.role === 'teacher')
-                      .map(p => (
-                        <option key={p.userId} value={p.userName}>
-                          {p.userName}
-                        </option>
-                      ))
-                    }
-                  </select>
-                </div>
-                
-                <div className="form-group">
-                  <label>Select Students</label>
-                  <div className="student-checkboxes">
-                    {participants
-                      .filter(p => p.role === 'student')
-                      .map(student => (
-                        <label key={student.userId} className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            value={student.userId}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedStudents([...selectedStudents, student.userName]);
-                              } else {
-                                setSelectedStudents(selectedStudents.filter(s => s !== student.userName));
-                              }
-                            }}
-                          />
-                          {student.userName}
-                        </label>
-                      ))
-                    }
-                  </div>
-                </div>
-              </div>
-              
-              <div className="modal-actions">
-                <button className="cancel-btn" onClick={() => setShowBreakoutModal(false)}>
-                  Cancel
-                </button>
-                <button 
-                  className="create-btn"
-                  onClick={createBreakoutRoom}
-                  disabled={!breakoutRoomName.trim()}
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ============ BREAKOUT ROOM NOTIFICATION ============ */}
-        {!inBreakoutRoom && breakoutRooms.length > 0 && role === 'student' && (
-          <div className="breakout-notification">
-            <p>A breakout room has been created!</p>
-            <div className="breakout-rooms-list">
-              {breakoutRooms.map(room => (
-                <button 
-                  key={room.id}
-                  className="join-breakout-btn"
-                  onClick={() => joinBreakoutRoom(room.id)}
-                >
-                  Join {room.name}
-                </button>
-              ))}
+            <div className="whiteboard-canvas">
+              <canvas />
             </div>
           </div>
         )}
@@ -1417,61 +995,39 @@ const MeetingRoom = ({ role = 'student' }) => {
         {/* ============ BREAKOUT ROOM CONTROLS ============ */}
         {inBreakoutRoom && (
           <div className="breakout-controls">
-            <button className="leave-breakout-btn" onClick={leaveBreakoutRoom}>
+            <button className="leave-breakout-btn" onClick={() => {
+              socketRef.current?.emit('leave-breakout-room', {
+                meetingId,
+                userId,
+                roomId: currentBreakoutRoom?.id
+              });
+              setInBreakoutRoom(false);
+              setCurrentBreakoutRoom(null);
+            }}>
               Leave Breakout Room
             </button>
-            {role === 'teacher' && (
-              <button className="end-breakout-btn" onClick={endBreakoutRooms}>
-                End All Rooms
-              </button>
-            )}
           </div>
         )}
-
-        {/* ============ LAYOUT CONTROLS ============ */}
-        <div className="layout-controls">
-          <button 
-            className={`layout-btn ${layoutMode === 'grid' ? 'active' : ''}`}
-            onClick={() => setLayoutMode('grid')}
-            title="Grid View"
-          >
-            <LayoutGrid size={20} />
-          </button>
-          <button 
-            className={`layout-btn ${layoutMode === 'speaker' ? 'active' : ''}`}
-            onClick={() => setLayoutMode('speaker')}
-            title="Speaker View"
-          >
-            <LayoutList size={20} />
-          </button>
-        </div>
 
         {/* ============ LEAVE MEETING MODAL ============ */}
         {showLeaveOptions && (
           <div className="modal-overlay">
             <div className="leave-modal">
               <h3>Leave Meeting</h3>
-              <p className="leave-question">What would you like to do?</p>
               
-              <div className="leave-options">
-                <button className="leave-option" onClick={leaveMeetingOnly}>
-                  <LogOut size={24} />
-                  <div className="leave-option-text">
-                    <strong>Leave meeting</strong>
-                    <span>You can rejoin later</span>
-                  </div>
+              <button className="leave-option" onClick={leaveMeetingOnly}>
+                <LogOut size={20} />
+                Leave meeting
+                <span>You can rejoin later</span>
+              </button>
+              
+              {role === 'teacher' && (
+                <button className="leave-option end" onClick={endMeetingForAll}>
+                  <X size={20} />
+                  End meeting for all
+                  <span>This will close the meeting for everyone</span>
                 </button>
-                
-                {role === 'teacher' && (
-                  <button className="leave-option end" onClick={endMeetingForAll}>
-                    <X size={24} />
-                    <div className="leave-option-text">
-                      <strong>End meeting for all</strong>
-                      <span>This will close the meeting for everyone</span>
-                    </div>
-                  </button>
-                )}
-              </div>
+              )}
               
               <button className="cancel-btn" onClick={() => setShowLeaveOptions(false)}>
                 Cancel
@@ -1484,85 +1040,81 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* ============ FOOTER CONTROLS ============ */}
       <footer className="meeting-footer">
         <div className="footer-left">
-          <div className="control-group">
-            <button 
-              className={`control-btn ${!micOn ? 'off' : ''}`}
-              onClick={toggleMic}
-              title={micOn ? 'Mute microphone' : 'Unmute microphone'}
-            >
-              {micOn ? <Mic size={22} /> : <MicOff size={22} />}
-            </button>
-            
-            <button 
-              className={`control-btn ${!cameraOn ? 'off' : ''}`}
-              onClick={toggleCamera}
-              title={cameraOn ? 'Turn off camera' : 'Turn on camera'}
-            >
-              {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
-            </button>
-            
-            <button 
-              className={`control-btn ${isScreenSharing ? 'active sharing' : ''}`}
-              onClick={toggleScreenShare}
-              title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
-            >
-              <ScreenShare size={22} />
-            </button>
-            
-            <button 
-              className={`control-btn ${showParticipants ? 'active' : ''}`}
-              onClick={toggleParticipants}
-              title="Participants"
-            >
-              <Users size={22} />
-              {totalParticipants > 0 && (
-                <span className="control-badge">{totalParticipants}</span>
-              )}
-            </button>
-          </div>
+          <button 
+            className={`control-btn ${!micOn ? 'off' : ''}`}
+            onClick={toggleMic}
+            title={micOn ? 'Mute' : 'Unmute'}
+          >
+            {micOn ? <Mic size={22} /> : <MicOff size={22} />}
+          </button>
+          
+          <button 
+            className={`control-btn ${!cameraOn ? 'off' : ''}`}
+            onClick={toggleCamera}
+            title={cameraOn ? 'Stop video' : 'Start video'}
+          >
+            {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
+          </button>
+          
+          <button 
+            className={`control-btn ${isScreenSharing ? 'active' : ''}`}
+            onClick={toggleScreenShare}
+            title="Share screen"
+          >
+            <Monitor size={22} />
+          </button>
+          
+          <button 
+            className={`control-btn ${showParticipants ? 'active' : ''}`}
+            onClick={toggleParticipants}
+            title="Participants"
+          >
+            <Users size={22} />
+            {totalParticipants > 0 && (
+              <span className="badge">{totalParticipants}</span>
+            )}
+          </button>
         </div>
 
         <div className="footer-center">
-          <div className="control-group">
-            <button 
-              className={`control-btn ${showChat ? 'active' : ''}`}
-              onClick={toggleChat}
-              title="Chat"
-            >
-              <MessageSquare size={22} />
-              {unreadMessages > 0 && (
-                <span className="control-badge">{unreadMessages}</span>
-              )}
-            </button>
-            
-            {role === 'teacher' && (
-              <button 
-                className={`control-btn ${showBreakoutRooms ? 'active' : ''}`}
-                onClick={toggleBreakoutRooms}
-                title="Breakout Rooms"
-              >
-                <Grid size={22} />
-              </button>
+          <button 
+            className={`control-btn ${showChat ? 'active' : ''}`}
+            onClick={toggleChat}
+            title="Chat"
+          >
+            <MessageSquare size={22} />
+            {unreadMessages > 0 && (
+              <span className="badge">{unreadMessages}</span>
             )}
-            
-            {role === 'teacher' && (
-              <button 
-                className={`control-btn ${isRecording ? 'recording' : ''}`}
-                onClick={isRecording ? stopRecording : startRecording}
-                title={isRecording ? 'Stop Recording' : 'Start Recording'}
-              >
-                {isRecording ? <StopCircle size={22} /> : <PlayCircle size={22} />}
-              </button>
-            )}
-            
+          </button>
+          
+          {role === 'teacher' && (
             <button 
-              className={`control-btn ${showWhiteboard ? 'active' : ''}`}
-              onClick={toggleWhiteboard}
-              title="Whiteboard"
+              className={`control-btn ${showBreakoutRooms ? 'active' : ''}`}
+              onClick={toggleBreakoutRooms}
+              title="Breakout Rooms"
             >
-              <PenTool size={22} />
+              <Grid size={22} />
             </button>
-          </div>
+          )}
+          
+          {role === 'teacher' && (
+            <button 
+              className={`control-btn ${isRecording ? 'recording' : ''}`}
+              onClick={isRecording ? stopRecording : startRecording}
+              title={isRecording ? 'Stop Recording' : 'Start Recording'}
+            >
+              {isRecording ? <Square size={22} /> : <Play size={22} />}
+            </button>
+          )}
+          
+          <button 
+            className={`control-btn ${showWhiteboard ? 'active' : ''}`}
+            onClick={toggleWhiteboard}
+            title="Whiteboard"
+          >
+            <PenTool size={22} />
+          </button>
         </div>
 
         <div className="footer-right">
