@@ -5,9 +5,18 @@ import io from 'socket.io-client';
 import {
   Mic, MicOff, Video, VideoOff, Users, MessageSquare, Grid, PenTool,
   ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize, PlayCircle, StopCircle, User, ChevronLeft, ChevronRight
+  Maximize, Minimize, PlayCircle, StopCircle, User, ChevronLeft, ChevronRight,
+  Volume2
 } from 'lucide-react';
 import './MeetingRoom.css';
+
+// Simple peer configuration for WebRTC
+const configuration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+};
 
 const MeetingRoom = ({ role = 'student' }) => {
   const { meetingId } = useParams();
@@ -25,29 +34,35 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [streamError, setStreamError] = useState('');
   
-  // Participants
+  // Peer states
+  const [peers, setPeers] = useState({});
   const [participants, setParticipants] = useState([]);
+  
+  // UI states
   const [showParticipants, setShowParticipants] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [showBreakoutRooms, setShowBreakoutRooms] = useState(false);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('grid');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Chat states
-  const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const chatEndRef = useRef(null);
   
   // Recording states
-  const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState('00:00');
   const recordingTimerRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
   
   // Breakout Room states
-  const [showBreakoutRooms, setShowBreakoutRooms] = useState(false);
   const [breakoutRooms, setBreakoutRooms] = useState([]);
-  const [selectedRoom, setSelectedRoom] = useState(null);
   const [showBreakoutModal, setShowBreakoutModal] = useState(false);
   const [breakoutRoomName, setBreakoutRoomName] = useState('');
   const [selectedStudents, setSelectedStudents] = useState([]);
@@ -56,7 +71,6 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [currentBreakoutRoom, setCurrentBreakoutRoom] = useState(null);
   
   // Whiteboard states
-  const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [whiteboardData, setWhiteboardData] = useState([]);
   const [currentTool, setCurrentTool] = useState('pen');
   const [currentColor, setCurrentColor] = useState('#000000');
@@ -68,175 +82,157 @@ const MeetingRoom = ({ role = 'student' }) => {
   
   // Link sharing
   const [linkCopied, setLinkCopied] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  // Attendance tracking
-  const [attendance, setAttendance] = useState([]);
-  const [joinTime] = useState(new Date());
+  const meetingLink = `${window.location.origin}/meeting/${meetingId}`;
   
   // Refs
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const peerConnections = useRef({});
 
-  // ============ INITIALIZE ============
+  // ============ INITIALIZE USER ============
   useEffect(() => {
-    // Initialize user
-    const storedName = localStorage.getItem(`${role}Name`) || 
-                      (role === 'teacher' ? 'Teacher' : 'Student');
-    setUserName(storedName);
-    setUserId(`${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+    // Generate unique user ID
+    const newUserId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setUserId(newUserId);
+    
+    // Get user name from localStorage
+    if (role === 'teacher') {
+      const teacherData = JSON.parse(localStorage.getItem('teacherUser') || '{}');
+      const fullName = `${teacherData.firstName || ''} ${teacherData.lastName || ''}`.trim();
+      setUserName(fullName || 'Teacher');
+    } else {
+      const studentName = localStorage.getItem('currentStudentName') || 'Student';
+      setUserName(studentName);
+    }
 
-    // Initialize socket
+    // Initialize socket connection
     const socket = io('http://localhost:5000', {
-      transports: ['websocket']
+      transports: ['websocket'],
+      reconnection: true
     });
     socketRef.current = socket;
 
+    // Join meeting room
     socket.emit('join-meeting', {
       meetingId,
-      userId: `${role}_${Date.now()}`,
-      userName: storedName,
+      userId: newUserId,
+      userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
       role
     });
 
-    // Track attendance
-    const attendanceRecord = {
-      userId: `${role}_${Date.now()}`,
-      userName: storedName,
-      role,
-      joinTime: new Date().toISOString(),
-      meetingId
-    };
-    setAttendance([attendanceRecord]);
-    
-    const existingAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existingAttendance, attendanceRecord]));
+    // Socket event listeners for WebRTC signaling
+    socket.on('user-joined', handleUserJoined);
+    socket.on('receive-offer', handleReceiveOffer);
+    socket.on('receive-answer', handleReceiveAnswer);
+    socket.on('receive-ice-candidate', handleReceiveICECandidate);
+    socket.on('user-left', handleUserLeft);
+    socket.on('meeting-ended', handleMeetingEnded);
 
-    // Socket listeners
-    socket.on('user-joined', (user) => {
-      setParticipants(prev => [...prev, user]);
-      setParticipantCount(prev => prev + 1);
-      
-      // Track attendance for new user
-      const newAttendance = {
-        userId: user.userId,
-        userName: user.userName,
-        role: user.role,
-        joinTime: new Date().toISOString(),
-        meetingId
-      };
-      setAttendance(prev => [...prev, newAttendance]);
-      
-      const updatedAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-      updatedAttendance.push(newAttendance);
-      localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updatedAttendance));
-    });
-
-    socket.on('user-left', (leftUserId) => {
-      setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
-      setParticipantCount(prev => prev - 1);
-      
-      // Update leave time in attendance
-      const updatedAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-      const updated = updatedAttendance.map(record => 
-        record.userId === leftUserId && !record.leaveTime
-          ? { ...record, leaveTime: new Date().toISOString() }
-          : record
-      );
-      localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
-    });
-
+    // Chat events
     socket.on('chat-message', (message) => {
       setMessages(prev => [...prev, message]);
-      if (!showChat) {
-        setUnreadMessages(prev => prev + 1);
-      }
+      if (!showChat) setUnreadMessages(prev => prev + 1);
     });
 
-    socket.on('breakout-room-created', (rooms) => {
-      setBreakoutRooms(rooms);
+    // Media state events
+    socket.on('media-state-changed', ({ userId, audioEnabled, videoEnabled }) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === userId ? { ...p, audioEnabled, videoEnabled } : p
+      ));
     });
 
+    // Screen share events
+    socket.on('screen-share-started', ({ userId }) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === userId ? { ...p, isScreenSharing: true } : p
+      ));
+      if (userId !== newUserId) setLayoutMode('speaker');
+    });
+
+    socket.on('screen-share-stopped', ({ userId }) => {
+      setParticipants(prev => prev.map(p => 
+        p.userId === userId ? { ...p, isScreenSharing: false } : p
+      ));
+    });
+
+    // Breakout room events
+    socket.on('breakout-room-created', setBreakoutRooms);
     socket.on('assigned-to-breakout', ({ roomId, roomName }) => {
       setInBreakoutRoom(true);
       setCurrentBreakoutRoom({ id: roomId, name: roomName });
-      setShowBreakoutModal(false);
     });
-
-    socket.on('breakout-room-joined', ({ roomId, roomName }) => {
-      setInBreakoutRoom(true);
-      setCurrentBreakoutRoom({ id: roomId, name: roomName });
-    });
-
     socket.on('return-to-main', () => {
       setInBreakoutRoom(false);
       setCurrentBreakoutRoom(null);
     });
 
-    socket.on('media-state-changed', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId 
-          ? { ...p, audioEnabled: data.audioEnabled, videoEnabled: data.videoEnabled }
-          : p
-      ));
-    });
-
-    socket.on('screen-share-started', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId 
-          ? { ...p, isScreenSharing: true }
-          : p
-      ));
-    });
-
-    socket.on('screen-share-stopped', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId 
-          ? { ...p, isScreenSharing: false }
-          : p
-      ));
-    });
-
+    // Whiteboard events
     socket.on('whiteboard-update', (data) => {
       setWhiteboardData(prev => [...prev, data]);
       drawOnCanvas(data);
     });
+    socket.on('whiteboard-clear', clearCanvas);
 
-    socket.on('whiteboard-clear', () => {
-      setWhiteboardData([]);
-      clearCanvas();
-    });
-
-    socket.on('meeting-ended', () => {
-      handleMeetingEnd();
-    });
+    // Track attendance
+    trackAttendance(newUserId);
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.emit('leave-meeting', { meetingId, userId });
-        socketRef.current.disconnect();
-      }
+      // Clean up all peer connections
+      Object.values(peerConnections.current).forEach(pc => pc.close());
+      
+      // Stop all media tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      
+      // Leave meeting
+      if (socketRef.current) {
+        socketRef.current.emit('leave-meeting', { meetingId, userId: newUserId });
+        socketRef.current.disconnect();
+      }
+      
+      // Clear recording timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
     };
   }, [meetingId, role]);
 
-  // ============ INITIALIZE MEDIA ============
+  // ============ TRACK ATTENDANCE ============
+  const trackAttendance = (uid) => {
+    const attendanceRecord = {
+      userId: uid,
+      userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
+      role,
+      joinTime: new Date().toISOString(),
+      meetingId
+    };
+    
+    const existingAttendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
+    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existingAttendance, attendanceRecord]));
+  };
+
+  // ============ INITIALIZE LOCAL MEDIA ============
   useEffect(() => {
     const initLocalStream = async () => {
       try {
+        setStreamError('');
+        
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true
+          }
         });
         
         localStreamRef.current = stream;
@@ -244,8 +240,17 @@ const MeetingRoom = ({ role = 'student' }) => {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
+
+        // Add tracks to all existing peer connections
+        Object.values(peerConnections.current).forEach(pc => {
+          stream.getTracks().forEach(track => {
+            pc.addTrack(track, stream);
+          });
+        });
+
       } catch (error) {
         console.error('Error accessing media devices:', error);
+        setStreamError('Could not access camera/microphone');
         setCameraOn(false);
         setMicOn(false);
       }
@@ -272,14 +277,157 @@ const MeetingRoom = ({ role = 'student' }) => {
     return () => clearInterval(timer);
   }, [meetingStartTime]);
 
-  // ============ AUTO SCROLL CHAT ============
-  useEffect(() => {
-    if (chatEndRef.current && showChat) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, showChat]);
+  // ============ WEBRTC HANDLERS ============
+  const handleUserJoined = async (user) => {
+    if (user.userId === userId) return;
+    
+    setParticipants(prev => [...prev, user]);
+    setParticipantCount(prev => prev + 1);
 
-  // ============ MEDIA FUNCTIONS ============
+    // Create peer connection for new user
+    const pc = createPeerConnection(user.userId);
+    peerConnections.current[user.userId] = pc;
+
+    // Add local stream to peer connection
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current);
+      });
+    }
+
+    // Create and send offer
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      
+      socketRef.current.emit('send-offer', {
+        meetingId,
+        targetUserId: user.userId,
+        offer: pc.localDescription
+      });
+    } catch (error) {
+      console.error('Error creating offer:', error);
+    }
+  };
+
+  const handleReceiveOffer = async ({ fromUserId, offer }) => {
+    // Create peer connection if doesn't exist
+    if (!peerConnections.current[fromUserId]) {
+      peerConnections.current[fromUserId] = createPeerConnection(fromUserId);
+    }
+    
+    const pc = peerConnections.current[fromUserId];
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      
+      // Add local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, localStreamRef.current);
+        });
+      }
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socketRef.current.emit('send-answer', {
+        meetingId,
+        targetUserId: fromUserId,
+        answer: pc.localDescription
+      });
+    } catch (error) {
+      console.error('Error handling offer:', error);
+    }
+  };
+
+  const handleReceiveAnswer = async ({ fromUserId, answer }) => {
+    const pc = peerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (error) {
+        console.error('Error handling answer:', error);
+      }
+    }
+  };
+
+  const handleReceiveICECandidate = async ({ fromUserId, candidate }) => {
+    const pc = peerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+      }
+    }
+  };
+
+  const handleUserLeft = (leftUserId) => {
+    // Close and remove peer connection
+    if (peerConnections.current[leftUserId]) {
+      peerConnections.current[leftUserId].close();
+      delete peerConnections.current[leftUserId];
+    }
+    
+    // Remove from participants list
+    setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
+    setParticipantCount(prev => prev - 1);
+    
+    // Update attendance
+    updateAttendanceOnLeave(leftUserId);
+  };
+
+  const updateAttendanceOnLeave = (leftUserId) => {
+    const attendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
+    const updated = attendance.map(record => 
+      record.userId === leftUserId && !record.leaveTime
+        ? { ...record, leaveTime: new Date().toISOString() }
+        : record
+    );
+    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
+  };
+
+  const createPeerConnection = (targetUserId) => {
+    const pc = new RTCPeerConnection(configuration);
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current.emit('send-ice-candidate', {
+          meetingId,
+          targetUserId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    // Handle incoming tracks
+    pc.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      
+      // Create or update video element for this peer
+      const videoContainer = document.getElementById(`remote-video-${targetUserId}`);
+      if (videoContainer) {
+        const videoElement = document.createElement('video');
+        videoElement.srcObject = remoteStream;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.className = 'remote-video';
+        videoContainer.innerHTML = '';
+        videoContainer.appendChild(videoElement);
+      }
+    };
+
+    // Handle connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+    };
+
+    return pc;
+  };
+
+  // ============ MEDIA CONTROLS ============
   const toggleMic = () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -325,15 +473,25 @@ const MeetingRoom = ({ role = 'student' }) => {
         
         screenStreamRef.current = stream;
         
+        // Replace video track in all peer connections
+        const videoTrack = stream.getVideoTracks()[0];
+        
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(videoTrack);
+          }
+        });
+        
+        // Update local video
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         
         setIsScreenSharing(true);
+        setLayoutMode('speaker');
         
-        stream.getVideoTracks()[0].onended = () => {
-          stopScreenShare();
-        };
+        videoTrack.onended = stopScreenShare;
         
         socketRef.current?.emit('screen-share-started', {
           meetingId,
@@ -353,8 +511,20 @@ const MeetingRoom = ({ role = 'student' }) => {
       screenStreamRef.current = null;
     }
     
-    if (localStreamRef.current && localVideoRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
+    // Restore camera video track
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      
+      Object.values(peerConnections.current).forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender && videoTrack) {
+          sender.replaceTrack(videoTrack);
+        }
+      });
+      
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
     }
     
     setIsScreenSharing(false);
@@ -365,42 +535,7 @@ const MeetingRoom = ({ role = 'student' }) => {
     });
   };
 
-  // ============ PARTICIPANTS FUNCTIONS ============
-  const toggleParticipants = () => {
-    setShowParticipants(!showParticipants);
-    setShowChat(false);
-    setShowBreakoutRooms(false);
-    setShowWhiteboard(false);
-  };
-
-  const muteParticipant = (participantId) => {
-    if (role !== 'teacher') return;
-    
-    socketRef.current?.emit('mute-participant', {
-      meetingId,
-      userId: participantId
-    });
-  };
-
-  const muteAllParticipants = () => {
-    if (role !== 'teacher') return;
-    
-    participants.forEach(participant => {
-      if (participant.role !== 'teacher') {
-        muteParticipant(participant.userId);
-      }
-    });
-  };
-
   // ============ CHAT FUNCTIONS ============
-  const toggleChat = () => {
-    setShowChat(!showChat);
-    setShowParticipants(false);
-    setShowBreakoutRooms(false);
-    setShowWhiteboard(false);
-    if (!showChat) setUnreadMessages(0);
-  };
-
   const sendChatMessage = (e) => {
     e.preventDefault();
     if (!chatMessage.trim()) return;
@@ -413,27 +548,187 @@ const MeetingRoom = ({ role = 'student' }) => {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    socketRef.current?.emit('chat-message', {
-      meetingId,
-      message
-    });
-
+    socketRef.current?.emit('chat-message', { meetingId, message });
     setMessages(prev => [...prev, message]);
     setChatMessage('');
   };
 
-  // ============ BREAKOUT ROOM FUNCTIONS (Teacher only) ============
-  const toggleBreakoutRooms = () => {
-    if (role === 'teacher') {
-      setShowBreakoutRooms(!showBreakoutRooms);
-      setShowParticipants(false);
-      setShowChat(false);
-      setShowWhiteboard(false);
+  // ============ AUTO SCROLL CHAT ============
+  useEffect(() => {
+    if (chatEndRef.current && showChat) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, showChat]);
+
+  // ============ WHITEBOARD FUNCTIONS ============
+  useEffect(() => {
+    if (showWhiteboard && canvasRef.current) {
+      initCanvas();
+    }
+  }, [showWhiteboard]);
+
+  const initCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = currentColor;
+  };
+
+  const startDrawing = (e) => {
+    isDrawingRef.current = true;
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    
+    const drawData = {
+      type: 'start',
+      x, y,
+      tool: currentTool,
+      color: currentColor,
+      userId,
+      timestamp: Date.now()
+    };
+    
+    socketRef.current?.emit('whiteboard-draw', { meetingId, data: drawData });
+  };
+
+  const draw = (e) => {
+    if (!isDrawingRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    
+    const drawData = {
+      type: 'draw',
+      x, y,
+      tool: currentTool,
+      color: currentColor,
+      userId,
+      timestamp: Date.now()
+    };
+    
+    socketRef.current?.emit('whiteboard-draw', { meetingId, data: drawData });
+  };
+
+  const stopDrawing = () => {
+    isDrawingRef.current = false;
+  };
+
+  const drawOnCanvas = (data) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = data.color;
+    
+    if (data.type === 'start') {
+      ctx.beginPath();
+      ctx.moveTo(data.x, data.y);
+    } else if (data.type === 'draw') {
+      ctx.lineTo(data.x, data.y);
+      ctx.stroke();
     }
   };
 
+  const clearWhiteboard = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setWhiteboardData([]);
+    socketRef.current?.emit('whiteboard-clear', { meetingId });
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  // ============ RECORDING FUNCTIONS ============
+  const startRecording = () => {
+    if (role !== 'teacher') return;
+    
+    const stream = isScreenSharing && screenStreamRef.current 
+      ? screenStreamRef.current 
+      : localStreamRef.current;
+      
+    if (!stream) return;
+    
+    recordedChunksRef.current = [];
+    
+    try {
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9,opus'
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+      
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Meeting_${meetingTopic}_${new Date().toISOString()}.webm`;
+        a.click();
+      };
+      
+      mediaRecorder.start(1000);
+      setIsRecording(true);
+      
+      const startTime = Date.now();
+      recordingTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const minutes = Math.floor(elapsed / 60000);
+        const seconds = Math.floor((elapsed % 60000) / 1000);
+        setRecordingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Recording error:', error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      setRecordingTime('00:00');
+    }
+  };
+
+  // ============ BREAKOUT ROOM FUNCTIONS ============
   const createBreakoutRoom = () => {
-    if (!breakoutRoomName.trim()) return;
+    if (!breakoutRoomName.trim() || role !== 'teacher') return;
     
     const newRoom = {
       id: `room_${Date.now()}`,
@@ -479,210 +774,70 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const endBreakoutRooms = () => {
-    socketRef.current?.emit('end-breakout-rooms', {
-      meetingId
-    });
+    socketRef.current?.emit('end-breakout-rooms', { meetingId });
     setBreakoutRooms([]);
     setShowBreakoutRooms(false);
   };
 
-  // ============ WHITEBOARD FUNCTIONS ============
+  // ============ LEAVE MEETING FUNCTIONS ============
+  const handleMeetingEnded = () => {
+    alert('The meeting has been ended by the host.');
+    navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
+  };
+
+  const leaveMeetingOnly = () => {
+    // Update attendance
+    updateAttendanceOnLeave(userId);
+    
+    // Clean up
+    if (isRecording && role === 'teacher') stopRecording();
+    if (isScreenSharing) stopScreenShare();
+    
+    navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
+  };
+
+  const endMeetingForAll = () => {
+    if (role !== 'teacher') return;
+    
+    socketRef.current?.emit('end-meeting', { meetingId });
+    
+    if (isRecording) stopRecording();
+    
+    navigate('/teacher/dashboard');
+  };
+
+  // ============ UI TOGGLE FUNCTIONS ============
+  const toggleParticipants = () => {
+    setShowParticipants(!showParticipants);
+    setShowChat(false);
+    setShowBreakoutRooms(false);
+    setShowWhiteboard(false);
+  };
+
+  const toggleChat = () => {
+    setShowChat(!showChat);
+    setShowParticipants(false);
+    setShowBreakoutRooms(false);
+    setShowWhiteboard(false);
+    if (!showChat) setUnreadMessages(0);
+  };
+
+  const toggleBreakoutRooms = () => {
+    if (role === 'teacher') {
+      setShowBreakoutRooms(!showBreakoutRooms);
+      setShowParticipants(false);
+      setShowChat(false);
+      setShowWhiteboard(false);
+    }
+  };
+
   const toggleWhiteboard = () => {
     setShowWhiteboard(!showWhiteboard);
     setShowParticipants(false);
     setShowChat(false);
     setShowBreakoutRooms(false);
-    
-    if (!showWhiteboard && canvasRef.current) {
-      initCanvas();
-    }
   };
 
-  const initCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = currentColor;
-    
-    // Load existing whiteboard data
-    whiteboardData.forEach(data => drawOnCanvas(data));
-  };
-
-  const startDrawing = (e) => {
-    isDrawingRef.current = true;
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    
-    const drawData = {
-      type: 'start',
-      x,
-      y,
-      tool: currentTool,
-      color: currentColor,
-      userId,
-      timestamp: Date.now()
-    };
-    
-    socketRef.current?.emit('whiteboard-draw', {
-      meetingId,
-      data: drawData
-    });
-  };
-
-  const draw = (e) => {
-    if (!isDrawingRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
-    const drawData = {
-      type: 'draw',
-      x,
-      y,
-      tool: currentTool,
-      color: currentColor,
-      userId,
-      timestamp: Date.now()
-    };
-    
-    socketRef.current?.emit('whiteboard-draw', {
-      meetingId,
-      data: drawData
-    });
-  };
-
-  const stopDrawing = () => {
-    isDrawingRef.current = false;
-  };
-
-  const drawOnCanvas = (data) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.strokeStyle = data.color;
-    
-    if (data.type === 'start') {
-      ctx.beginPath();
-      ctx.moveTo(data.x, data.y);
-    } else if (data.type === 'draw') {
-      ctx.lineTo(data.x, data.y);
-      ctx.stroke();
-    }
-  };
-
-  const clearWhiteboard = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setWhiteboardData([]);
-    
-    socketRef.current?.emit('whiteboard-clear', {
-      meetingId
-    });
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  };
-
-  // ============ RECORDING FUNCTIONS (Teacher only) ============
-  const startRecording = () => {
-    if (role !== 'teacher') return;
-    
-    const stream = isScreenSharing && screenStreamRef.current 
-      ? screenStreamRef.current 
-      : localStreamRef.current;
-      
-    if (!stream) return;
-    
-    recordedChunksRef.current = [];
-    
-    try {
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9,opus'
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
-      };
-      
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const fileName = `Meeting_${meetingTopic}_${new Date().toISOString()}.webm`;
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        a.click();
-      };
-      
-      mediaRecorder.start(1000);
-      setIsRecording(true);
-      
-      const startTime = Date.now();
-      recordingTimerRef.current = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const minutes = Math.floor(elapsed / 60000);
-        const seconds = Math.floor((elapsed % 60000) / 1000);
-        setRecordingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Recording error:', error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
-      setRecordingTime('00:00');
-    }
-  };
-
-  // ============ LINK SHARING ============
-  const copyMeetingLink = () => {
-    const link = `${window.location.origin}/meeting/${meetingId}`;
-    navigator.clipboard.writeText(link);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 3000);
-  };
-
-  // ============ FULLSCREEN ============
   const toggleFullscreen = () => {
     if (!isFullscreen) {
       document.documentElement.requestFullscreen();
@@ -692,69 +847,22 @@ const MeetingRoom = ({ role = 'student' }) => {
     setIsFullscreen(!isFullscreen);
   };
 
-  // ============ LEAVE MEETING FUNCTIONS ============
-  const handleLeaveMeeting = () => {
-    // Update attendance with leave time
-    const attendanceData = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    const updatedAttendance = attendanceData.map(record => 
-      record.userId === userId && !record.leaveTime
-        ? { 
-            ...record, 
-            leaveTime: new Date().toISOString(),
-            duration: calculateDuration(record.joinTime, new Date().toISOString())
-          }
-        : record
-    );
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updatedAttendance));
-    
-    if (role === 'teacher') {
-      navigate('/teacher/dashboard');
-    } else {
-      navigate('/student/dashboard');
-    }
+  const copyMeetingLink = () => {
+    navigator.clipboard.writeText(meetingLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 3000);
   };
 
-  const handleEndMeeting = () => {
+  const muteParticipant = (participantId) => {
     if (role !== 'teacher') return;
-    
-    // Update all participants' leave time
-    const attendanceData = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    const now = new Date().toISOString();
-    const updatedAttendance = attendanceData.map(record => {
-      if (!record.leaveTime) {
-        return {
-          ...record,
-          leaveTime: now,
-          duration: calculateDuration(record.joinTime, now)
-        };
-      }
-      return record;
+    socketRef.current?.emit('mute-participant', { meetingId, userId: participantId });
+  };
+
+  const muteAllParticipants = () => {
+    if (role !== 'teacher') return;
+    participants.forEach(p => {
+      if (p.role !== 'teacher') muteParticipant(p.userId);
     });
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updatedAttendance));
-    
-    socketRef.current?.emit('end-meeting', { meetingId });
-    
-    if (role === 'teacher') {
-      navigate('/teacher/dashboard');
-    }
-  };
-
-  const handleMeetingEnd = () => {
-    alert('The meeting has been ended by the host.');
-    if (role === 'teacher') {
-      navigate('/teacher/dashboard');
-    } else {
-      navigate('/student/dashboard');
-    }
-  };
-
-  const calculateDuration = (start, end) => {
-    const startTime = new Date(start).getTime();
-    const endTime = new Date(end).getTime();
-    const durationMs = endTime - startTime;
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
   };
 
   // ============ RENDER ============
@@ -817,7 +925,7 @@ const MeetingRoom = ({ role = 'student' }) => {
             : 'sidebar-closed'
         }`}>
           <div className="video-grid-container">
-            <div className={`video-grid ${isScreenSharing ? 'screen-sharing' : ''}`}>
+            <div className={`video-grid ${layoutMode} ${isScreenSharing ? 'screen-sharing' : ''}`}>
               {/* Local Video */}
               <div className={`video-tile local ${isScreenSharing ? 'screen-sharing-active' : ''}`}>
                 <video
@@ -857,6 +965,7 @@ const MeetingRoom = ({ role = 'student' }) => {
               {participants.map((participant) => (
                 <div 
                   key={participant.userId} 
+                  id={`remote-video-${participant.userId}`}
                   className={`video-tile remote ${participant.isScreenSharing ? 'screen-sharing-active' : ''}`}
                 >
                   <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
@@ -896,7 +1005,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         </div>
 
-        {/* ============ PARTICIPANTS SIDEBAR (1/4 Screen) ============ */}
+        {/* ============ PARTICIPANTS SIDEBAR ============ */}
         {showParticipants && (
           <div className="sidebar participants-sidebar">
             <div className="sidebar-header">
@@ -955,7 +1064,6 @@ const MeetingRoom = ({ role = 'student' }) => {
                 ))}
               </div>
 
-              {/* Teacher Controls */}
               {role === 'teacher' && participants.length > 0 && (
                 <div className="participant-controls-section">
                   <button className="mute-all-btn" onClick={muteAllParticipants}>
@@ -968,7 +1076,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
-        {/* ============ CHAT SIDEBAR (1/4 Screen) ============ */}
+        {/* ============ CHAT SIDEBAR ============ */}
         {showChat && (
           <div className="sidebar chat-sidebar">
             <div className="sidebar-header">
@@ -1015,7 +1123,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
-        {/* ============ BREAKOUT ROOMS SIDEBAR (Teacher only) ============ */}
+        {/* ============ BREAKOUT ROOMS SIDEBAR ============ */}
         {showBreakoutRooms && role === 'teacher' && (
           <div className="sidebar breakout-sidebar">
             <div className="sidebar-header">
@@ -1063,7 +1171,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
-        {/* ============ WHITEBOARD SIDEBAR (1/4 Screen) ============ */}
+        {/* ============ WHITEBOARD SIDEBAR ============ */}
         {showWhiteboard && (
           <div className="sidebar whiteboard-sidebar">
             <div className="sidebar-header">
@@ -1191,7 +1299,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
-        {/* ============ BREAKOUT ROOM JOIN NOTIFICATION (Students) ============ */}
+        {/* ============ BREAKOUT ROOM NOTIFICATION ============ */}
         {!inBreakoutRoom && breakoutRooms.length > 0 && role === 'student' && (
           <div className="breakout-notification">
             <p>A breakout room has been created!</p>
@@ -1209,7 +1317,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
-        {/* ============ BREAKOUT ROOM LEAVE OPTIONS ============ */}
+        {/* ============ BREAKOUT ROOM CONTROLS ============ */}
         {inBreakoutRoom && (
           <div className="breakout-controls">
             <button className="leave-breakout-btn" onClick={leaveBreakoutRoom}>
@@ -1223,6 +1331,24 @@ const MeetingRoom = ({ role = 'student' }) => {
           </div>
         )}
 
+        {/* ============ LAYOUT CONTROLS ============ */}
+        <div className="layout-controls">
+          <button 
+            className={`layout-btn ${layoutMode === 'grid' ? 'active' : ''}`}
+            onClick={() => setLayoutMode('grid')}
+            title="Grid View"
+          >
+            <LayoutGrid size={20} />
+          </button>
+          <button 
+            className={`layout-btn ${layoutMode === 'speaker' ? 'active' : ''}`}
+            onClick={() => setLayoutMode('speaker')}
+            title="Speaker View"
+          >
+            <LayoutList size={20} />
+          </button>
+        </div>
+
         {/* ============ LEAVE MEETING MODAL ============ */}
         {showLeaveOptions && (
           <div className="modal-overlay">
@@ -1231,7 +1357,7 @@ const MeetingRoom = ({ role = 'student' }) => {
               <p className="leave-question">What would you like to do?</p>
               
               <div className="leave-options">
-                <button className="leave-option" onClick={handleLeaveMeeting}>
+                <button className="leave-option" onClick={leaveMeetingOnly}>
                   <LogOut size={24} />
                   <div className="leave-option-text">
                     <strong>Leave meeting</strong>
@@ -1240,7 +1366,7 @@ const MeetingRoom = ({ role = 'student' }) => {
                 </button>
                 
                 {role === 'teacher' && (
-                  <button className="leave-option end" onClick={handleEndMeeting}>
+                  <button className="leave-option end" onClick={endMeetingForAll}>
                     <X size={24} />
                     <div className="leave-option-text">
                       <strong>End meeting for all</strong>
