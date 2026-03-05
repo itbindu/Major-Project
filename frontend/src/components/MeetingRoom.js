@@ -1,28 +1,20 @@
 // src/components/MeetingRoom.js
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import {
-  Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare, Grid,
-  PenTool, ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize, Play, Square, User
+  Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare,
+  ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
+  Maximize, Minimize, Play, Square
 } from 'lucide-react';
 import './MeetingRoom.css';
-
-// STUN servers for WebRTC
-const configuration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' }
-  ]
-};
 
 const MeetingRoom = ({ role = 'student' }) => {
   const { meetingId } = useParams();
   const navigate = useNavigate();
+  
+  // ============ IMPORTANT: YOUR BACKEND URL ON RENDER ============
+  const BACKEND_URL = 'https://major-project-1-ngux.onrender.com';
   
   // ============ BASIC STATES ============
   const [userName, setUserName] = useState('');
@@ -36,7 +28,7 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [streamError, setStreamError] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
   
   // Participants
   const [participants, setParticipants] = useState([]);
@@ -54,15 +46,6 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const recordingTimerRef = useRef(null);
   
-  // Breakout Room states
-  const [showBreakoutRooms, setShowBreakoutRooms] = useState(false);
-  const [breakoutRooms, setBreakoutRooms] = useState([]);
-  const [inBreakoutRoom, setInBreakoutRoom] = useState(false);
-  const [currentBreakoutRoom, setCurrentBreakoutRoom] = useState(null);
-  
-  // Whiteboard states
-  const [showWhiteboard, setShowWhiteboard] = useState(false);
-  
   // Leave options
   const [showLeaveOptions, setShowLeaveOptions] = useState(false);
   
@@ -70,13 +53,10 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [linkCopied, setLinkCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   
-  // WebRTC Refs
+  // Refs
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
-  const screenStreamRef = useRef(null);
-  const peerConnections = useRef({});
-  const remoteVideoRefs = useRef({});
 
   // ============ INITIALIZE USER ============
   useEffect(() => {
@@ -84,7 +64,7 @@ const MeetingRoom = ({ role = 'student' }) => {
     const newUserId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setUserId(newUserId);
     
-    // Get user name from localStorage
+    // Get user name
     if (role === 'teacher') {
       const teacherData = JSON.parse(localStorage.getItem('teacherUser') || '{}');
       const fullName = `${teacherData.firstName || ''} ${teacherData.lastName || ''}`.trim();
@@ -98,35 +78,49 @@ const MeetingRoom = ({ role = 'student' }) => {
     const storedTopic = localStorage.getItem(`meetingTopic_${meetingId}`) || 'Virtual Classroom';
     setMeetingTopic(storedTopic);
 
-    // Initialize socket connection
-    const socket = io('http://localhost:5000', {
-      transports: ['websocket'],
-      reconnection: true
+    console.log('Connecting to backend:', BACKEND_URL);
+    
+    // Initialize socket connection to Render backend
+    const socket = io(BACKEND_URL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      timeout: 20000,
+      withCredentials: true
     });
+    
     socketRef.current = socket;
 
-    // Join meeting room
-    socket.emit('join-meeting', {
-      meetingId,
-      userId: newUserId,
-      userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
-      role
+    // Connection event handlers
+    socket.on('connect', () => {
+      console.log('✅ Connected to server successfully!');
+      setConnectionStatus('connected');
+      
+      // Join meeting room
+      socket.emit('join-meeting', {
+        meetingId,
+        userId: newUserId,
+        userName: userName || (role === 'teacher' ? 'Teacher' : 'Student'),
+        role
+      });
     });
 
-    // Socket event listeners
+    socket.on('connect_error', (error) => {
+      console.error('❌ Connection error:', error);
+      setConnectionStatus('error');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected from server');
+      setConnectionStatus('disconnected');
+    });
+
+    // Get all existing users
     socket.on('all-users', (users) => {
       console.log('All users in meeting:', users);
       setParticipants(users.filter(u => u.userId !== newUserId));
       setParticipantCount(users.length);
-      
-      // Create peer connections for all existing users
-      setTimeout(() => {
-        users.forEach(user => {
-          if (user.userId !== newUserId && !peerConnections.current[user.userId]) {
-            createPeerConnection(user.userId);
-          }
-        });
-      }, 1000);
     });
 
     socket.on('user-joined', (user) => {
@@ -135,33 +129,19 @@ const MeetingRoom = ({ role = 'student' }) => {
       
       setParticipants(prev => [...prev, user]);
       setParticipantCount(prev => prev + 1);
-
-      // Create peer connection for new user
-      if (!peerConnections.current[user.userId]) {
-        createPeerConnection(user.userId);
-      }
+      
+      setMessages(prev => [...prev, {
+        id: `system-${Date.now()}`,
+        type: 'system',
+        text: `${user.userName} joined the meeting`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
     });
 
-    socket.on('receive-offer', handleReceiveOffer);
-    socket.on('receive-answer', handleReceiveAnswer);
-    socket.on('receive-ice-candidate', handleReceiveICECandidate);
-    
     socket.on('user-left', (leftUserId) => {
       console.log('User left:', leftUserId);
-      
-      if (peerConnections.current[leftUserId]) {
-        peerConnections.current[leftUserId].close();
-        delete peerConnections.current[leftUserId];
-      }
-      
-      if (remoteVideoRefs.current[leftUserId]) {
-        delete remoteVideoRefs.current[leftUserId];
-      }
-      
       setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
       setParticipantCount(prev => prev - 1);
-      
-      updateAttendanceOnLeave(leftUserId);
     });
 
     socket.on('chat-message', (message) => {
@@ -177,18 +157,6 @@ const MeetingRoom = ({ role = 'student' }) => {
       ));
     });
 
-    socket.on('screen-share-started', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId ? { ...p, isScreenSharing: true } : p
-      ));
-    });
-
-    socket.on('screen-share-stopped', (data) => {
-      setParticipants(prev => prev.map(p => 
-        p.userId === data.userId ? { ...p, isScreenSharing: false } : p
-      ));
-    });
-
     socket.on('meeting-ended', () => {
       alert('The meeting has been ended by the host.');
       navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
@@ -198,23 +166,13 @@ const MeetingRoom = ({ role = 'student' }) => {
     trackAttendance(newUserId);
 
     return () => {
-      // Clean up all peer connections
-      Object.values(peerConnections.current).forEach(pc => {
-        if (pc) pc.close();
-      });
-      
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      
       if (socketRef.current) {
         socketRef.current.emit('leave-meeting', { meetingId, userId: newUserId });
         socketRef.current.disconnect();
       }
-      
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
@@ -236,32 +194,13 @@ const MeetingRoom = ({ role = 'student' }) => {
     localStorage.setItem(`attendance_${meetingId}`, JSON.stringify([...existingAttendance, attendanceRecord]));
   };
 
-  const updateAttendanceOnLeave = (leftUserId) => {
-    const attendance = JSON.parse(localStorage.getItem(`attendance_${meetingId}`) || '[]');
-    const updated = attendance.map(record => 
-      record.userId === leftUserId && !record.leaveTime
-        ? { ...record, leaveTime: new Date().toISOString() }
-        : record
-    );
-    localStorage.setItem(`attendance_${meetingId}`, JSON.stringify(updated));
-  };
-
   // ============ INITIALIZE LOCAL MEDIA ============
   useEffect(() => {
     const initLocalStream = async () => {
       try {
-        setStreamError('');
-        
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
-          },
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true
-          }
+          video: true,
+          audio: true
         });
         
         localStreamRef.current = stream;
@@ -269,10 +208,8 @@ const MeetingRoom = ({ role = 'student' }) => {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-
       } catch (error) {
         console.error('Error accessing media devices:', error);
-        setStreamError('Could not access camera/microphone');
         setCameraOn(false);
         setMicOn(false);
       }
@@ -285,176 +222,13 @@ const MeetingRoom = ({ role = 'student' }) => {
   useEffect(() => {
     const timer = setInterval(() => {
       const elapsed = Date.now() - meetingStartTime;
-      const hours = Math.floor(elapsed / 3600000);
-      const minutes = Math.floor((elapsed % 3600000) / 60000);
+      const minutes = Math.floor(elapsed / 60000);
       const seconds = Math.floor((elapsed % 60000) / 1000);
-      
-      setMeetingTime(
-        hours > 0 
-          ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-          : `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-      );
+      setMeetingTime(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
     }, 1000);
 
     return () => clearInterval(timer);
   }, [meetingStartTime]);
-
-  // ============ WEBRTC FUNCTIONS ============
-  const createPeerConnection = (targetUserId) => {
-    console.log('Creating peer connection for:', targetUserId);
-    
-    const pc = new RTCPeerConnection(configuration);
-    peerConnections.current[targetUserId] = pc;
-
-    // Add local stream tracks
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        pc.addTrack(track, localStreamRef.current);
-      });
-    }
-
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current.emit('send-ice-candidate', {
-          meetingId,
-          targetUserId,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    // Handle incoming tracks
-    pc.ontrack = (event) => {
-      console.log('Received track from:', targetUserId);
-      const [remoteStream] = event.streams;
-      
-      // Create video element for this peer
-      const videoId = `remote-video-${targetUserId}`;
-      let videoElement = document.getElementById(videoId);
-      
-      if (!videoElement) {
-        videoElement = document.createElement('video');
-        videoElement.id = videoId;
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.className = 'remote-video';
-        
-        const tile = document.getElementById(`tile-${targetUserId}`);
-        if (tile) {
-          tile.appendChild(videoElement);
-        }
-      }
-      
-      videoElement.srcObject = remoteStream;
-      remoteVideoRefs.current[targetUserId] = videoElement;
-    };
-
-    // Create and send offer
-    pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
-      .then(() => {
-        socketRef.current.emit('send-offer', {
-          meetingId,
-          targetUserId,
-          offer: pc.localDescription
-        });
-      })
-      .catch(error => console.error('Error creating offer:', error));
-
-    return pc;
-  };
-
-  const handleReceiveOffer = async ({ fromUserId, offer }) => {
-    console.log('Received offer from:', fromUserId);
-    
-    if (!peerConnections.current[fromUserId]) {
-      const pc = new RTCPeerConnection(configuration);
-      peerConnections.current[fromUserId] = pc;
-
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => {
-          pc.addTrack(track, localStreamRef.current);
-        });
-      }
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socketRef.current.emit('send-ice-candidate', {
-            meetingId,
-            targetUserId: fromUserId,
-            candidate: event.candidate
-          });
-        }
-      };
-
-      pc.ontrack = (event) => {
-        console.log('Received track from:', fromUserId);
-        const [remoteStream] = event.streams;
-        
-        const videoId = `remote-video-${fromUserId}`;
-        let videoElement = document.getElementById(videoId);
-        
-        if (!videoElement) {
-          videoElement = document.createElement('video');
-          videoElement.id = videoId;
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.className = 'remote-video';
-          
-          const tile = document.getElementById(`tile-${fromUserId}`);
-          if (tile) {
-            tile.appendChild(videoElement);
-          }
-        }
-        
-        videoElement.srcObject = remoteStream;
-        remoteVideoRefs.current[fromUserId] = videoElement;
-      };
-    }
-
-    const pc = peerConnections.current[fromUserId];
-
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      socketRef.current.emit('send-answer', {
-        meetingId,
-        targetUserId: fromUserId,
-        answer: pc.localDescription
-      });
-    } catch (error) {
-      console.error('Error handling offer:', error);
-    }
-  };
-
-  const handleReceiveAnswer = async ({ fromUserId, answer }) => {
-    console.log('Received answer from:', fromUserId);
-    
-    const pc = peerConnections.current[fromUserId];
-    if (pc) {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (error) {
-        console.error('Error handling answer:', error);
-      }
-    }
-  };
-
-  const handleReceiveICECandidate = async ({ fromUserId, candidate }) => {
-    console.log('Received ICE candidate from:', fromUserId);
-    
-    const pc = peerConnections.current[fromUserId];
-    if (pc) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-        console.error('Error adding ICE candidate:', error);
-      }
-    }
-  };
 
   // ============ MEDIA CONTROLS ============
   const toggleMic = () => {
@@ -500,25 +274,15 @@ const MeetingRoom = ({ role = 'student' }) => {
           audio: true
         });
         
-        screenStreamRef.current = stream;
-        
-        // Replace video track in all peer connections
-        const videoTrack = stream.getVideoTracks()[0];
-        
-        Object.values(peerConnections.current).forEach(pc => {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (sender) {
-            sender.replaceTrack(videoTrack);
-          }
-        });
-        
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         
         setIsScreenSharing(true);
         
-        videoTrack.onended = stopScreenShare;
+        stream.getVideoTracks()[0].onended = () => {
+          stopScreenShare();
+        };
         
         socketRef.current?.emit('screen-share-started', {
           meetingId,
@@ -533,24 +297,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const stopScreenShare = () => {
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-      screenStreamRef.current = null;
-    }
-    
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      
-      Object.values(peerConnections.current).forEach(pc => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender && videoTrack) {
-          sender.replaceTrack(videoTrack);
-        }
-      });
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
-      }
+    if (localStreamRef.current && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
     }
     
     setIsScreenSharing(false);
@@ -564,7 +312,7 @@ const MeetingRoom = ({ role = 'student' }) => {
   // ============ CHAT FUNCTIONS ============
   const sendChatMessage = (e) => {
     e.preventDefault();
-    if (!chatMessage.trim()) return;
+    if (!chatMessage.trim() || connectionStatus !== 'connected') return;
 
     const message = {
       id: Date.now().toString(),
@@ -615,32 +363,12 @@ const MeetingRoom = ({ role = 'student' }) => {
   const toggleParticipants = () => {
     setShowParticipants(!showParticipants);
     setShowChat(false);
-    setShowBreakoutRooms(false);
-    setShowWhiteboard(false);
   };
 
   const toggleChat = () => {
     setShowChat(!showChat);
     setShowParticipants(false);
-    setShowBreakoutRooms(false);
-    setShowWhiteboard(false);
     if (!showChat) setUnreadMessages(0);
-  };
-
-  const toggleBreakoutRooms = () => {
-    if (role === 'teacher') {
-      setShowBreakoutRooms(!showBreakoutRooms);
-      setShowParticipants(false);
-      setShowChat(false);
-      setShowWhiteboard(false);
-    }
-  };
-
-  const toggleWhiteboard = () => {
-    setShowWhiteboard(!showWhiteboard);
-    setShowParticipants(false);
-    setShowChat(false);
-    setShowBreakoutRooms(false);
   };
 
   const toggleFullscreen = () => {
@@ -664,16 +392,8 @@ const MeetingRoom = ({ role = 'student' }) => {
     socketRef.current?.emit('mute-participant', { meetingId, userId: participantId });
   };
 
-  const muteAllParticipants = () => {
-    if (role !== 'teacher') return;
-    participants.forEach(p => {
-      if (p.role !== 'teacher') muteParticipant(p.userId);
-    });
-  };
-
   // ============ LEAVE MEETING FUNCTIONS ============
   const leaveMeetingOnly = () => {
-    updateAttendanceOnLeave(userId);
     navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
   };
 
@@ -688,13 +408,20 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   return (
     <div className="meeting-room">
-      {/* ============ HEADER ============ */}
+      {/* Connection Status Banner */}
+      {connectionStatus !== 'connected' && (
+        <div className={`connection-banner ${connectionStatus}`}>
+          {connectionStatus === 'connecting' && '🔄 Connecting to meeting server...'}
+          {connectionStatus === 'error' && '❌ Connection failed. Retrying...'}
+          {connectionStatus === 'disconnected' && '🔄 Disconnected. Reconnecting...'}
+        </div>
+      )}
+
+      {/* Header */}
       <header className="meeting-header">
         <div className="header-left">
           <div className="meeting-info">
-            <h2 className="meeting-title">
-              {inBreakoutRoom ? currentBreakoutRoom?.name : meetingTopic}
-            </h2>
+            <h2 className="meeting-title">{meetingTopic}</h2>
             <span className="meeting-time">
               <Clock size={16} />
               {meetingTime}
@@ -727,13 +454,9 @@ const MeetingRoom = ({ role = 'student' }) => {
         </div>
       </header>
 
-      {/* ============ MAIN CONTENT ============ */}
+      {/* Main Content */}
       <main className="meeting-main">
-        <div className={`video-section ${
-          showParticipants || showChat || showBreakoutRooms || showWhiteboard 
-            ? 'with-sidebar' 
-            : 'full-width'
-        }`}>
+        <div className={`video-section ${showParticipants || showChat ? 'with-sidebar' : 'full-width'}`}>
           <div className="video-grid">
             {/* Local Video */}
             <div className="video-tile local">
@@ -752,24 +475,20 @@ const MeetingRoom = ({ role = 'student' }) => {
                 </div>
               )}
               <div className="video-label">
-                <span>{userName} {role === 'teacher' ? '(Host)' : ''}</span>
+                <span>{userName} {role === 'teacher' ? '(Host)' : ''} (You)</span>
                 {!micOn && <MicOff size={14} />}
               </div>
               {isScreenSharing && (
                 <div className="sharing-badge">
                   <ScreenShare size={12} />
-                  Sharing
+                  Sharing Screen
                 </div>
               )}
             </div>
 
             {/* Remote Participants */}
             {participants.map((participant) => (
-              <div 
-                key={participant.userId}
-                id={`tile-${participant.userId}`}
-                className="video-tile remote"
-              >
+              <div key={participant.userId} className="video-tile remote">
                 <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
                   <div className="avatar">
                     {participant.userName?.charAt(0).toUpperCase() || 'U'}
@@ -779,27 +498,12 @@ const MeetingRoom = ({ role = 'student' }) => {
                   <span>{participant.userName}</span>
                   {!participant.audioEnabled && <MicOff size={14} />}
                 </div>
-                {participant.isScreenSharing && (
-                  <div className="sharing-badge">
-                    <ScreenShare size={12} />
-                    Sharing
-                  </div>
-                )}
-                {role === 'teacher' && participant.role !== 'teacher' && (
-                  <button 
-                    className="mute-btn-overlay"
-                    onClick={() => muteParticipant(participant.userId)}
-                    title="Mute"
-                  >
-                    <VolumeX size={14} />
-                  </button>
-                )}
               </div>
             ))}
           </div>
         </div>
 
-        {/* ============ PARTICIPANTS SIDEBAR ============ */}
+        {/* Participants Sidebar */}
         {showParticipants && (
           <div className="sidebar">
             <div className="sidebar-header">
@@ -856,17 +560,10 @@ const MeetingRoom = ({ role = 'student' }) => {
                 </div>
               ))}
             </div>
-
-            {role === 'teacher' && participants.length > 0 && (
-              <button className="mute-all-btn" onClick={muteAllParticipants}>
-                <VolumeX size={14} />
-                Mute All
-              </button>
-            )}
           </div>
         )}
 
-        {/* ============ CHAT SIDEBAR ============ */}
+        {/* Chat Sidebar */}
         {showChat && (
           <div className="sidebar">
             <div className="sidebar-header">
@@ -883,9 +580,9 @@ const MeetingRoom = ({ role = 'student' }) => {
               {messages.map((message) => (
                 <div 
                   key={message.id} 
-                  className={`message ${message.userId === userId ? 'sent' : 'received'}`}
+                  className={`message ${message.userId === userId ? 'sent' : 'received'} ${message.type === 'system' ? 'system' : ''}`}
                 >
-                  {message.userId !== userId && (
+                  {message.type !== 'system' && message.userId !== userId && (
                     <div className="message-sender">{message.userName}</div>
                   )}
                   <div className="message-content">{message.text}</div>
@@ -900,116 +597,20 @@ const MeetingRoom = ({ role = 'student' }) => {
                 type="text"
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Type a message..."
+                placeholder={connectionStatus === 'connected' ? "Type a message..." : "Connecting..."}
+                disabled={connectionStatus !== 'connected'}
               />
-              <button type="submit" disabled={!chatMessage.trim()}>
+              <button 
+                type="submit" 
+                disabled={!chatMessage.trim() || connectionStatus !== 'connected'}
+              >
                 Send
               </button>
             </form>
           </div>
         )}
 
-        {/* ============ BREAKOUT ROOMS SIDEBAR ============ */}
-        {showBreakoutRooms && role === 'teacher' && (
-          <div className="sidebar">
-            <div className="sidebar-header">
-              <h3>
-                <Grid size={18} />
-                Breakout Rooms
-              </h3>
-              <button className="close-btn" onClick={toggleBreakoutRooms}>
-                <X size={16} />
-              </button>
-            </div>
-            
-            <div className="breakout-content">
-              <button className="create-room-btn" onClick={() => {
-                const name = prompt('Enter room name:');
-                if (name) {
-                  const newRoom = {
-                    id: `room_${Date.now()}`,
-                    name,
-                    teacher: userName,
-                    students: []
-                  };
-                  setBreakoutRooms([...breakoutRooms, newRoom]);
-                  socketRef.current?.emit('create-breakout-room', { meetingId, room: newRoom });
-                }
-              }}>
-                + Create Room
-              </button>
-              
-              <div className="rooms-list">
-                {breakoutRooms.map(room => (
-                  <div key={room.id} className="room-item">
-                    <div>
-                      <h4>{room.name}</h4>
-                      <p>Teacher: {room.teacher}</p>
-                    </div>
-                    <button onClick={() => {
-                      socketRef.current?.emit('join-breakout-room', {
-                        meetingId,
-                        roomId: room.id,
-                        userId,
-                        userName,
-                        role
-                      });
-                      setInBreakoutRoom(true);
-                      setCurrentBreakoutRoom(room);
-                    }}>
-                      Join
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ============ WHITEBOARD SIDEBAR ============ */}
-        {showWhiteboard && (
-          <div className="sidebar whiteboard">
-            <div className="sidebar-header">
-              <h3>
-                <PenTool size={18} />
-                Whiteboard
-              </h3>
-              <button className="close-btn" onClick={toggleWhiteboard}>
-                <X size={16} />
-              </button>
-            </div>
-            
-            <div className="whiteboard-toolbar">
-              <button className="tool-btn active">Pen</button>
-              <button className="tool-btn">Eraser</button>
-              <input type="color" defaultValue="#000000" />
-              <button className="tool-btn">Clear</button>
-            </div>
-            
-            <div className="whiteboard-canvas">
-              <canvas />
-            </div>
-          </div>
-        )}
-
-        {/* ============ BREAKOUT ROOM CONTROLS ============ */}
-        {inBreakoutRoom && (
-          <div className="breakout-controls">
-            <button className="leave-breakout-btn" onClick={() => {
-              socketRef.current?.emit('leave-breakout-room', {
-                meetingId,
-                userId,
-                roomId: currentBreakoutRoom?.id
-              });
-              setInBreakoutRoom(false);
-              setCurrentBreakoutRoom(null);
-            }}>
-              Leave Breakout Room
-            </button>
-          </div>
-        )}
-
-        {/* ============ LEAVE MEETING MODAL ============ */}
+        {/* Leave Meeting Modal */}
         {showLeaveOptions && (
           <div className="modal-overlay">
             <div className="leave-modal">
@@ -1017,15 +618,19 @@ const MeetingRoom = ({ role = 'student' }) => {
               
               <button className="leave-option" onClick={leaveMeetingOnly}>
                 <LogOut size={20} />
-                Leave meeting
-                <span>You can rejoin later</span>
+                <div>
+                  <strong>Leave meeting</strong>
+                  <span>You can rejoin later</span>
+                </div>
               </button>
               
               {role === 'teacher' && (
                 <button className="leave-option end" onClick={endMeetingForAll}>
                   <X size={20} />
-                  End meeting for all
-                  <span>This will close the meeting for everyone</span>
+                  <div>
+                    <strong>End meeting for all</strong>
+                    <span>This will close the meeting for everyone</span>
+                  </div>
                 </button>
               )}
               
@@ -1037,13 +642,13 @@ const MeetingRoom = ({ role = 'student' }) => {
         )}
       </main>
 
-      {/* ============ FOOTER CONTROLS ============ */}
+      {/* Footer */}
       <footer className="meeting-footer">
         <div className="footer-left">
           <button 
             className={`control-btn ${!micOn ? 'off' : ''}`}
             onClick={toggleMic}
-            title={micOn ? 'Mute' : 'Unmute'}
+            title={micOn ? 'Mute microphone' : 'Unmute microphone'}
           >
             {micOn ? <Mic size={22} /> : <MicOff size={22} />}
           </button>
@@ -1051,7 +656,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           <button 
             className={`control-btn ${!cameraOn ? 'off' : ''}`}
             onClick={toggleCamera}
-            title={cameraOn ? 'Stop video' : 'Start video'}
+            title={cameraOn ? 'Turn off camera' : 'Turn on camera'}
           >
             {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
           </button>
@@ -1059,7 +664,7 @@ const MeetingRoom = ({ role = 'student' }) => {
           <button 
             className={`control-btn ${isScreenSharing ? 'active' : ''}`}
             onClick={toggleScreenShare}
-            title="Share screen"
+            title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
           >
             <Monitor size={22} />
           </button>
@@ -1090,16 +695,6 @@ const MeetingRoom = ({ role = 'student' }) => {
           
           {role === 'teacher' && (
             <button 
-              className={`control-btn ${showBreakoutRooms ? 'active' : ''}`}
-              onClick={toggleBreakoutRooms}
-              title="Breakout Rooms"
-            >
-              <Grid size={22} />
-            </button>
-          )}
-          
-          {role === 'teacher' && (
-            <button 
               className={`control-btn ${isRecording ? 'recording' : ''}`}
               onClick={isRecording ? stopRecording : startRecording}
               title={isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -1107,14 +702,6 @@ const MeetingRoom = ({ role = 'student' }) => {
               {isRecording ? <Square size={22} /> : <Play size={22} />}
             </button>
           )}
-          
-          <button 
-            className={`control-btn ${showWhiteboard ? 'active' : ''}`}
-            onClick={toggleWhiteboard}
-            title="Whiteboard"
-          >
-            <PenTool size={22} />
-          </button>
         </div>
 
         <div className="footer-right">
