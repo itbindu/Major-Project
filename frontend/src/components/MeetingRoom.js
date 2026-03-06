@@ -66,6 +66,269 @@ const MeetingRoom = ({ role = 'student' }) => {
     ]
   };
 
+  // Add CSS styles for screen share
+  useEffect(() => {
+    const screenShareStyles = `
+      .meeting-room {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: #0a0a0a;
+        color: white;
+      }
+
+      .meeting-main {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .video-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        transition: all 0.3s ease;
+        overflow-y: auto;
+      }
+
+      .video-container.with-sidebar {
+        width: calc(100% - 300px);
+      }
+
+      /* Screen share container */
+      .screen-share-container {
+        width: 100%;
+        margin-bottom: 20px;
+        background: #1a1a1a;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 2px solid #3b82f6;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+      }
+
+      .screen-share-header {
+        padding: 12px 16px;
+        background: #2d2d2d;
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        border-bottom: 1px solid #404040;
+      }
+
+      .screen-share-video-wrapper {
+        position: relative;
+        width: 100%;
+        background: #000;
+        min-height: 200px;
+        max-height: 50vh;
+      }
+
+      .screen-share-video {
+        width: 100%;
+        height: 100%;
+        max-height: 50vh;
+        object-fit: contain;
+        background: #000;
+        display: block;
+      }
+
+      /* Video grid - always visible */
+      .video-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        width: 100%;
+        min-height: 200px;
+      }
+
+      .video-grid.screen-share-active {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      }
+
+      /* Video tiles */
+      .video-tile {
+        position: relative;
+        aspect-ratio: 16/9;
+        background: #1a1a1a;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #333;
+        transition: all 0.2s;
+      }
+
+      .video-tile:hover {
+        border-color: #3b82f6;
+      }
+
+      .video-element {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .video-placeholder {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%);
+      }
+
+      .video-placeholder.hidden {
+        display: none;
+      }
+
+      .avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: #3b82f6;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+        font-weight: bold;
+        color: white;
+      }
+
+      .video-label {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        right: 8px;
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 6px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        backdrop-filter: blur(4px);
+      }
+
+      .name {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .host-badge {
+        background: #fbbf24;
+        color: #000;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: bold;
+      }
+
+      .screen-share-badge {
+        background: #3b82f6;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .mute-overlay {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: rgba(239, 68, 68, 0.9);
+        border: none;
+        color: white;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .mute-overlay:hover {
+        background: #dc2626;
+      }
+
+      /* Screen share banner */
+      .screen-share-banner {
+        position: fixed;
+        top: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        z-index: 100;
+        font-size: 14px;
+        backdrop-filter: blur(4px);
+        border: 1px solid #3b82f6;
+      }
+
+      .stop-screen-share-btn {
+        margin-left: auto;
+        background: #dc2626;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        transition: background 0.2s;
+      }
+
+      .stop-screen-share-btn:hover {
+        background: #b91c1c;
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
+        .video-grid {
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
+
+        .avatar {
+          width: 50px;
+          height: 50px;
+          font-size: 24px;
+        }
+
+        .screen-share-banner {
+          top: 70px;
+          font-size: 12px;
+          padding: 6px 12px;
+        }
+      }
+    `;
+
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = screenShareStyles;
+    document.head.appendChild(styleSheet);
+
+    return () => {
+      styleSheet.remove();
+    };
+  }, []);
+
   // ============ INITIALIZE ============
   useEffect(() => {
     const newUserId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -144,27 +407,32 @@ const MeetingRoom = ({ role = 'student' }) => {
     socket.on('receive-ice-candidate', handleReceiveICECandidate);
     
     // Screen sharing socket events
-    socket.on('screen-share-started', ({ userId, userName }) => {
-      console.log('📺 Screen sharing started by:', userName);
-      setScreenShareParticipant({ userId, userName });
-      if (userId !== newUserId) {
-        createScreenPeerConnection(userId);
+    socket.on('screen-share-started', ({ userId: sharerId, userName: sharerName }) => {
+      console.log('📺 Screen sharing started by:', sharerName);
+      setScreenShareParticipant({ userId: sharerId, userName: sharerName });
+      
+      // Create screen share container but DON'T remove the sharer's video
+      ensureScreenShareContainer(sharerName);
+      
+      if (sharerId !== newUserId) {
+        createScreenPeerConnection(sharerId);
       }
     });
 
-    socket.on('screen-share-stopped', ({ userId }) => {
-      console.log('📺 Screen sharing stopped by:', userId);
-      if (screenShareParticipant?.userId === userId) {
+    socket.on('screen-share-stopped', ({ userId: sharerId }) => {
+      console.log('📺 Screen sharing stopped by:', sharerId);
+      if (screenShareParticipant?.userId === sharerId) {
         setScreenShareParticipant(null);
+        
+        // Remove screen share container
+        const screenContainer = document.querySelector('.screen-share-container');
+        if (screenContainer) {
+          screenContainer.remove();
+        }
       }
-      if (screenPeerConnections.current[userId]) {
-        screenPeerConnections.current[userId].close();
-        delete screenPeerConnections.current[userId];
-      }
-      // Remove screen share video element
-      const screenElement = document.getElementById('screen-share-video');
-      if (screenElement) {
-        screenElement.srcObject = null;
+      if (screenPeerConnections.current[sharerId]) {
+        screenPeerConnections.current[sharerId].close();
+        delete screenPeerConnections.current[sharerId];
       }
     });
 
@@ -187,6 +455,10 @@ const MeetingRoom = ({ role = 'student' }) => {
 
       if (screenShareParticipant?.userId === leftUserId) {
         setScreenShareParticipant(null);
+        const screenContainer = document.querySelector('.screen-share-container');
+        if (screenContainer) {
+          screenContainer.remove();
+        }
       }
       
       setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
@@ -266,11 +538,15 @@ const MeetingRoom = ({ role = 'student' }) => {
         videoElement.id = videoId;
         videoElement.autoplay = true;
         videoElement.playsInline = true;
-        videoElement.className = 'remote-video';
+        videoElement.className = 'video-element';
         
         const tile = document.getElementById(`tile-${targetUserId}`);
         if (tile) {
-          tile.innerHTML = '';
+          // Clear placeholder and add video
+          const placeholder = tile.querySelector('.video-placeholder');
+          if (placeholder) {
+            placeholder.classList.add('hidden');
+          }
           tile.appendChild(videoElement);
         }
       }
@@ -327,11 +603,14 @@ const MeetingRoom = ({ role = 'student' }) => {
           videoElement.id = videoId;
           videoElement.autoplay = true;
           videoElement.playsInline = true;
-          videoElement.className = 'remote-video';
+          videoElement.className = 'video-element';
           
           const tile = document.getElementById(`tile-${fromUserId}`);
           if (tile) {
-            tile.innerHTML = '';
+            const placeholder = tile.querySelector('.video-placeholder');
+            if (placeholder) {
+              placeholder.classList.add('hidden');
+            }
             tile.appendChild(videoElement);
           }
         }
@@ -384,6 +663,92 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   // ============ SCREEN SHARING FUNCTIONS ============
+  const ensureScreenShareContainer = (sharerName) => {
+    let screenContainer = document.querySelector('.screen-share-container');
+    
+    if (!screenContainer) {
+      screenContainer = document.createElement('div');
+      screenContainer.className = 'screen-share-container';
+      
+      const header = document.createElement('div');
+      header.className = 'screen-share-header';
+      
+      // Create monitor icon
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('width', '16');
+      icon.setAttribute('height', '16');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'currentColor');
+      icon.setAttribute('stroke-width', '2');
+      
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '2');
+      rect.setAttribute('y', '3');
+      rect.setAttribute('width', '20');
+      rect.setAttribute('height', '14');
+      rect.setAttribute('rx', '2');
+      rect.setAttribute('ry', '2');
+      
+      const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line1.setAttribute('x1', '8');
+      line1.setAttribute('y1', '21');
+      line1.setAttribute('x2', '16');
+      line1.setAttribute('y2', '21');
+      
+      const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line2.setAttribute('x1', '12');
+      line2.setAttribute('y1', '17');
+      line2.setAttribute('x2', '12');
+      line2.setAttribute('y2', '21');
+      
+      icon.appendChild(rect);
+      icon.appendChild(line1);
+      icon.appendChild(line2);
+      
+      const span = document.createElement('span');
+      span.textContent = `${sharerName} is sharing their screen`;
+      
+      // Add stop button if it's the current user
+      if (sharerName === userName) {
+        const stopBtn = document.createElement('button');
+        stopBtn.className = 'stop-screen-share-btn';
+        stopBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><rect x="8" y="8" width="8" height="8"/></svg> Stop Sharing';
+        stopBtn.onclick = stopScreenSharing;
+        header.appendChild(stopBtn);
+      }
+      
+      header.appendChild(icon);
+      header.appendChild(span);
+      
+      const videoWrapper = document.createElement('div');
+      videoWrapper.className = 'screen-share-video-wrapper';
+      
+      const screenVideo = document.createElement('video');
+      screenVideo.id = 'screen-share-video';
+      screenVideo.className = 'screen-share-video';
+      screenVideo.autoplay = true;
+      screenVideo.playsInline = true;
+      
+      videoWrapper.appendChild(screenVideo);
+      screenContainer.appendChild(header);
+      screenContainer.appendChild(videoWrapper);
+      
+      const videoContainer = document.querySelector('.video-container');
+      if (videoContainer) {
+        videoContainer.insertBefore(screenContainer, videoContainer.firstChild);
+      }
+    } else {
+      // Update header text
+      const headerSpan = screenContainer.querySelector('.screen-share-header span');
+      if (headerSpan) {
+        headerSpan.textContent = `${sharerName} is sharing their screen`;
+      }
+    }
+    
+    return screenContainer;
+  };
+
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
       stopScreenSharing();
@@ -399,13 +764,11 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   const startScreenSharing = async () => {
     try {
-      // Check if screen sharing is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         alert('Screen sharing is not supported in this browser');
         return;
       }
 
-      // Get screen stream
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           cursor: 'always',
@@ -416,40 +779,38 @@ const MeetingRoom = ({ role = 'student' }) => {
       
       screenStreamRef.current = screenStream;
       
-      // Handle when user stops sharing via browser UI
       screenStream.getVideoTracks()[0].onended = () => {
         stopScreenSharing();
       };
 
-      // Update UI state
       setIsScreenSharing(true);
       setScreenShareParticipant({ userId, userName });
       
-      // Notify others that screen sharing started
+      // Create local preview - THIS DOESN'T REMOVE THE VIDEO TILE
+      ensureScreenShareContainer(userName);
+      const previewVideo = document.getElementById('screen-share-video');
+      if (previewVideo) {
+        previewVideo.srcObject = screenStream;
+        previewVideo.play().catch(e => console.log('Error playing preview:', e));
+      }
+
       socketRef.current.emit('screen-share-started', {
         meetingId,
         userId,
         userName
       });
 
-      // Create screen share peer connections for all existing participants
+      // Add screen share class to video grid
+      const videoGrid = document.querySelector('.video-grid');
+      if (videoGrid) {
+        videoGrid.classList.add('screen-share-active');
+      }
+
+      // Create screen share connections for all participants
       participants.forEach(participant => {
         if (participant.userId !== userId) {
           createScreenPeerConnection(participant.userId, screenStream);
         }
-      });
-
-      // Display local screen preview
-      const screenPreview = document.getElementById('screen-share-preview');
-      if (screenPreview) {
-        screenPreview.srcObject = screenStream;
-      }
-
-      // Listen for track ended (when user stops sharing)
-      screenStream.getTracks().forEach(track => {
-        track.onended = () => {
-          stopScreenSharing();
-        };
       });
 
     } catch (error) {
@@ -469,33 +830,40 @@ const MeetingRoom = ({ role = 'student' }) => {
     setIsScreenSharing(false);
     setScreenShareParticipant(null);
 
-    // Notify others that screen sharing stopped
+    // Remove screen share container
+    const screenContainer = document.querySelector('.screen-share-container');
+    if (screenContainer) {
+      screenContainer.remove();
+    }
+
+    // Remove screen share class from video grid
+    const videoGrid = document.querySelector('.video-grid');
+    if (videoGrid) {
+      videoGrid.classList.remove('screen-share-active');
+    }
+
     socketRef.current.emit('screen-share-stopped', {
       meetingId,
       userId
     });
 
-    // Close all screen share peer connections
     Object.values(screenPeerConnections.current).forEach(pc => pc.close());
     screenPeerConnections.current = {};
-
-    // Clear screen preview
-    const screenPreview = document.getElementById('screen-share-preview');
-    if (screenPreview) {
-      screenPreview.srcObject = null;
-    }
   };
 
   const createScreenPeerConnection = (targetUserId, stream = screenStreamRef.current) => {
-    if (!stream) return;
+    if (!stream) {
+      console.log('No screen stream available for:', targetUserId);
+      return;
+    }
 
     console.log('Creating screen share connection for:', targetUserId);
     
     const pc = new RTCPeerConnection(configuration);
     screenPeerConnections.current[targetUserId] = pc;
 
-    // Add screen track
     stream.getTracks().forEach(track => {
+      console.log('Adding screen track to peer connection:', track.kind);
       pc.addTrack(track, stream);
     });
 
@@ -507,6 +875,10 @@ const MeetingRoom = ({ role = 'student' }) => {
           candidate: event.candidate
         });
       }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Screen PC connection state:', pc.connectionState);
     };
 
     pc.createOffer()
@@ -541,12 +913,21 @@ const MeetingRoom = ({ role = 'student' }) => {
       };
 
       pc.ontrack = (event) => {
-        console.log('Received screen track from:', fromUserId);
+        console.log('📺 Received screen track from:', fromUserId);
         const [remoteStream] = event.streams;
         
-        const screenElement = document.getElementById('screen-share-video');
-        if (screenElement) {
-          screenElement.srcObject = remoteStream;
+        let screenVideo = document.getElementById('screen-share-video');
+        
+        if (!screenVideo) {
+          // Create container if it doesn't exist
+          const sharerName = participants.find(p => p.userId === fromUserId)?.userName || 'Someone';
+          ensureScreenShareContainer(sharerName);
+          screenVideo = document.getElementById('screen-share-video');
+        }
+        
+        if (screenVideo) {
+          screenVideo.srcObject = remoteStream;
+          screenVideo.play().catch(e => console.log('Error playing screen video:', e));
         }
       };
     }
@@ -737,7 +1118,6 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const leaveMeetingOnly = () => {
-    // Stop screen sharing if active
     if (isScreenSharing) {
       stopScreenSharing();
     }
@@ -746,13 +1126,30 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   const endMeetingForAll = () => {
     if (role !== 'teacher') return;
-    // Stop screen sharing if active
     if (isScreenSharing) {
       stopScreenSharing();
     }
     socketRef.current?.emit('end-meeting', { meetingId });
     navigate('/teacher/dashboard');
   };
+
+  // Debug function
+  useEffect(() => {
+    const debugInterval = setInterval(() => {
+      const screenVideo = document.getElementById('screen-share-video');
+      if (screenVideo) {
+        console.log('Screen video state:', {
+          exists: true,
+          srcObject: screenVideo.srcObject ? 'has stream' : 'no stream',
+          paused: screenVideo.paused,
+          readyState: screenVideo.readyState,
+          containerExists: !!document.querySelector('.screen-share-container')
+        });
+      }
+    }, 5000);
+
+    return () => clearInterval(debugInterval);
+  }, []);
 
   // ============ RENDER ============
   const totalParticipants = participants.length + 1;
@@ -767,8 +1164,8 @@ const MeetingRoom = ({ role = 'student' }) => {
         </div>
       )}
 
-      {/* Screen Share Banner */}
-      {screenShareParticipant && screenShareParticipant.userId !== userId && (
+      {/* Screen Share Banner - Only for viewers, not for sharer */}
+      {screenShareParticipant && screenShareParticipant.userId !== userId && !isScreenSharing && (
         <div className="screen-share-banner">
           <Monitor size={16} />
           <span>{screenShareParticipant.userName} is sharing their screen</span>
@@ -805,40 +1202,10 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* Main Content */}
       <main className="meeting-main">
         <div className={`video-container ${showParticipants || showChat ? 'with-sidebar' : ''}`}>
-          {/* Screen Share View */}
-          {(screenShareParticipant || isScreenSharing) && (
-            <div className="screen-share-container">
-              <div className="screen-share-header">
-                <Monitor size={16} />
-                <span>
-                  {isScreenSharing 
-                    ? 'You are sharing your screen' 
-                    : `${screenShareParticipant?.userName} is sharing their screen`}
-                </span>
-                {isScreenSharing && (
-                  <button 
-                    className="stop-screen-share-btn"
-                    onClick={stopScreenSharing}
-                  >
-                    <StopCircle size={16} />
-                    Stop Sharing
-                  </button>
-                )}
-              </div>
-              <div className="screen-share-video-wrapper">
-                <video
-                  id={isScreenSharing ? 'screen-share-preview' : 'screen-share-video'}
-                  ref={isScreenSharing ? screenVideoRef : null}
-                  autoPlay
-                  playsInline
-                  className="screen-share-video"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Video Grid */}
-          <div className={`video-grid ${screenShareParticipant || isScreenSharing ? 'with-screen-share' : ''}`}>
+          {/* Screen share container will be inserted here dynamically */}
+          
+          {/* Video Grid - Always visible with all participants */}
+          <div className={`video-grid ${(screenShareParticipant || isScreenSharing) ? 'screen-share-active' : ''}`}>
             {/* Local Video */}
             <div className="video-tile local" id="local-tile">
               <video
@@ -859,17 +1226,23 @@ const MeetingRoom = ({ role = 'student' }) => {
                 <span className="name">{userName} (You)</span>
                 {role === 'teacher' && <span className="host-badge">HOST</span>}
                 {!micOn && <MicOff size={14} />}
+                {isScreenSharing && (
+                  <span className="screen-share-badge">
+                    <Monitor size={12} />
+                    Sharing
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Remote Videos */}
+            {/* Remote Videos - ALL participants appear here, including screen sharer */}
             {participants.map((participant) => (
               <div 
                 key={participant.userId}
                 id={`tile-${participant.userId}`}
                 className="video-tile remote"
               >
-                <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
+                <div className={`video-placeholder ${!participant.videoEnabled ? '' : 'hidden'}`}>
                   <div className="avatar">
                     {participant.userName?.charAt(0).toUpperCase()}
                   </div>
@@ -1034,9 +1407,9 @@ const MeetingRoom = ({ role = 'student' }) => {
           <button 
             className={`control-btn screen-share ${isScreenSharing ? 'active' : ''}`} 
             onClick={toggleScreenShare}
-            disabled={!screenShareAvailable || (screenShareParticipant && screenShareParticipant.userId !== userId)}
+            disabled={!screenShareAvailable || (screenShareParticipant && screenShareParticipant.userId !== userId && !isScreenSharing)}
             title={!screenShareAvailable ? 'Screen sharing not available' : 
-                   (screenShareParticipant && screenShareParticipant.userId !== userId) ? 'Someone else is sharing' : 
+                   (screenShareParticipant && screenShareParticipant.userId !== userId) ? `${screenShareParticipant.userName} is sharing` : 
                    'Share screen'}
           >
             {isScreenSharing ? <StopCircle size={22} /> : <Monitor size={22} />}
