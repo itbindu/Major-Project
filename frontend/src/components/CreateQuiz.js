@@ -125,146 +125,144 @@ const CreateQuiz = () => {
   return (
     <div className="create-quiz-container">
       <h2>Create New Quiz</h2>
-      
+
       {message && (
         <div className={message.includes('success') ? 'success-message' : 'error-message'}>
           {message}
         </div>
       )}
-      
+
       <form onSubmit={handleCreate}>
-        <div className="form-group">
-          <label>Quiz Title</label>
-          <input 
-            type="text" 
-            placeholder="e.g., Mathematics Quiz - Chapter 1" 
-            value={title} 
-            onChange={(e) => setTitle(e.target.value)} 
-            required 
-          />
-        </div>
-        
-        <div className="form-group">
-          <label>Time Limit (minutes)</label>
-          <input 
-            type="number" 
-            placeholder="Time Limit (minutes)" 
-            value={timeLimit} 
-            onChange={(e) => setTimeLimit(Math.max(1, parseInt(e.target.value) || 1))} 
-            min="1"
-            max="180"
-            required 
-          />
-          <small>Students must complete the quiz within this time</small>
+        {/* QUIZ INFO */}
+        <div className="section-card">
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Quiz Title</label>
+              <input
+                type="text"
+                placeholder="Enter quiz title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>Time (min)</label>
+              <input
+                type="number"
+                min="1"
+                max="240"
+                value={timeLimit}
+                onChange={(e) => setTimeLimit(Math.max(1, e.target.value))}
+              />
+            </div>
+          </div>
         </div>
 
         <h3>Questions</h3>
-        
+
         {questions.map((q, i) => (
           <div key={i} className="question-card">
             <div className="question-header">
               <h4>Question {i + 1}</h4>
               {questions.length > 1 && (
-                <button 
-                  type="button" 
-                  className="remove-btn"
+                <button
+                  type="button"
+                  className="remove-text-btn"
                   onClick={() => removeQuestion(i)}
                 >
                   ✕ Remove
                 </button>
               )}
             </div>
-            
-            <div className="form-group">
-              <label>Question Type</label>
-              <select 
-                value={q.type} 
-                onChange={(e) => updateQuestion(i, 'type', e.target.value)}
-              >
-                <option value="mcq">Multiple Choice</option>
-                <option value="blank">Fill in the Blank</option>
-              </select>
-            </div>
-            
-            <div className="form-group">
-              <label>Question Text</label>
-              <input 
-                type="text" 
-                placeholder="Enter your question here" 
-                value={q.question} 
-                onChange={(e) => updateQuestion(i, 'question', e.target.value)} 
-                required 
-              />
-            </div>
-            
+
+            <div className="form-row">
+  <div className="form-group" style={{ flex: 1 }}>
+    <label>Type</label>
+    <select
+      value={q.type}
+      onChange={(e) => updateQuestion(i, 'type', e.target.value)}
+    >
+      <option value="mcq">Multiple Choice</option>
+      <option value="blank">Fill in Blank</option>
+    </select>
+  </div>
+
+  <div className="form-group" style={{ flex: 1 }}>
+    <label>Question</label>
+    <input
+      type="text"
+      placeholder="Enter question"
+      value={q.question}
+      onChange={(e) => updateQuestion(i, 'question', e.target.value)}
+    />
+  </div>
+</div>
             {q.type === 'mcq' && (
               <>
                 <div className="options-grid">
                   {q.options.map((opt, j) => (
-                    <div key={j} className="option-input">
-                      <label>Option {String.fromCharCode(65 + j)}</label>
-                      <input 
-                        type="text" 
-                        placeholder={`Option ${j + 1}`} 
-                        value={opt} 
-                        onChange={(e) => updateQuestion(i, 'options', e.target.value, j)} 
-                        required 
+                    <div key={j} className="option-item">
+                      <span className="option-label">
+                        {String.fromCharCode(65 + j)}
+                      </span>
+                      <input
+                        type="text"
+                        placeholder={`Option ${String.fromCharCode(65 + j)}`}
+                        value={opt}
+                        onChange={(e) =>
+                          updateQuestion(i, 'options', e.target.value, j)
+                        }
+                        className="option-input"
                       />
                     </div>
                   ))}
                 </div>
-                
-                <div className="form-group">
-                  <label>Correct Answer</label>
+
+                <div className="correct-answer-row">
+                  <label>Correct:</label>
                   <select
                     value={q.correctAnswer}
-                    onChange={(e) => updateQuestion(i, 'correctAnswer', e.target.value)}
-                    required
+                    onChange={(e) =>
+                      updateQuestion(i, 'correctAnswer', e.target.value)
+                    }
+                    className="correct-select"
                   >
-                    <option value="">Select correct answer</option>
-                    {q.options.map((_, j) => {
-                      const letter = String.fromCharCode(65 + j);
-                      return (
-                        <option key={j} value={letter}>
-                          Option {letter}
-                        </option>
-                      );
-                    })}
+                    <option value="">Select</option>
+                    {['A', 'B', 'C', 'D'].map(opt => (
+                      <option key={opt} value={opt}>
+                        Option {opt}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </>
             )}
-            
+
             {q.type === 'blank' && (
-              <div className="form-group">
-                <label>Correct Answer (exact text)</label>
-                <input 
-                  type="text" 
-                  placeholder="Enter the exact correct answer" 
-                  value={q.correctAnswer} 
-                  onChange={(e) => updateQuestion(i, 'correctAnswer', e.target.value)} 
-                  required 
+              <div className="correct-answer-row">
+                <label>Correct Answer:</label>
+                <input
+                  type="text"
+                  placeholder="Exact answer"
+                  value={q.correctAnswer}
+                  onChange={(e) =>
+                    updateQuestion(i, 'correctAnswer', e.target.value)
+                  }
+                  className="blank-input"
                 />
-                <small>Student's answer must match exactly (case-sensitive)</small>
               </div>
             )}
           </div>
         ))}
-        
+
         <div className="button-group">
-          <button 
-            type="button" 
-            onClick={addQuestion} 
-            className="add-btn"
-          >
+          <button type="button" className="add-btn" onClick={addQuestion}>
             + Add Question
           </button>
-          <button 
-            type="submit" 
-            className="submit-btn"
-            disabled={loading}
-          >
-            {loading ? 'Creating Quiz...' : 'Create Quiz'}
+
+          <button type="submit" className="submit-btn" disabled={loading}>
+            {loading ? 'Creating...' : 'Create Quiz'}
           </button>
         </div>
       </form>

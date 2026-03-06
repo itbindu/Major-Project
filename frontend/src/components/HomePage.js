@@ -1,46 +1,60 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import './HomePage.css';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { FaChalkboardTeacher, FaUserGraduate } from "react-icons/fa";
+import "./HomePage.css";
 
 const HomePage = () => {
+  const [role, setRole] = useState("");
+  const navigate = useNavigate();
+
+  const handleContinue = () => {
+    if (!role) return;
+    navigate(`/${role}/register`);
+  };
+
   return (
     <div className="homepage">
-      <div className="hero">
-        <h1>Welcome to Virtual Classroom Platform</h1>
-      </div>
+      {/* HERO */}
+      <header className="hero">
+        <h1>Live Learn Platform</h1>
+      </header>
 
-      <div className="cards">
-        <div className="card">
-          <h2>Teachers</h2>
-          <p>
-            Create engaging quizzes, monitor student progress, manage classes and view detailed analytics.
-          </p>
-          <div className="buttons">
-            <Link to="/teacher/register" className="btn primary">
-              Teacher Register
-            </Link>
-            <Link to="/teacher/login" className="btn secondary">
-              Teacher Login
-            </Link>
-          </div>
+      {/* ROLE SELECTION */}
+      <section className="cards" aria-label="Select your role">
+        <div
+          className={`card ${role === "teacher" ? "active" : ""}`}
+          tabIndex="0"
+          role="button"
+          aria-pressed={role === "teacher"}
+          onClick={() => setRole("teacher")}
+          onKeyDown={(e) => e.key === "Enter" && setRole("teacher")}
+        >
+          <FaChalkboardTeacher className="icon" />
+          <h2>Teacher</h2>
         </div>
 
-        <div className="card">
-          <h2>Students</h2>
-          <p>
-            Join live quizzes, test your knowledge,
-            see instant results and track your learning progress.
-          </p>
-          <div className="buttons">
-            <Link to="/student/register" className="btn primary">
-              Student Register
-            </Link>
-            <Link to="/student/login" className="btn secondary">
-              Student Login
-            </Link>
-          </div>
+        <div
+          className={`card ${role === "student" ? "active" : ""}`}
+          tabIndex="0"
+          role="button"
+          aria-pressed={role === "student"}
+          onClick={() => setRole("student")}
+          onKeyDown={(e) => e.key === "Enter" && setRole("student")}
+        >
+          <FaUserGraduate className="icon" />
+          <h2>Student</h2>
         </div>
-      </div>
+      </section>
+
+      {/* CONTINUE BUTTON */}
+      <button
+        className="continue-btn"
+        onClick={handleContinue}
+        disabled={!role}
+        aria-disabled={!role}
+      >
+        Continue
+      </button>
     </div>
   );
 };

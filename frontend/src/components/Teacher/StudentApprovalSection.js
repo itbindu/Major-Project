@@ -1,5 +1,6 @@
 // src/components/Teacher/StudentApprovalSection.js
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom"; // Add this import
 import api from "../../api/config";
 import "./StudentApprovalSection.css";
 
@@ -10,64 +11,81 @@ const StudentApprovalSection = () => {
   const [loading, setLoading] = useState(true);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+  
+  const navigate = useNavigate(); // Add navigate hook
 
   useEffect(() => {
-    fetchData();
+    fetchRegisteredStudents();
+    fetchAllTeachers();
   }, []);
 
-  const fetchData = async () => {
+  /* ===============================
+     FETCH REGISTERED STUDENTS
+     =============================== */
+  const fetchRegisteredStudents = async () => {
     try {
       setLoading(true);
-      
-      const studentsRes = await api.get("/api/teachers/registered-students");
-      
-      const teachersRes = await api.get("/api/teachers/all-teachers");
-
-      if (studentsRes.data.success) {
-        setStudents(studentsRes.data.students || []);
-      }
-      
-      if (teachersRes.data.success) {
-        setAllTeachers(teachersRes.data.teachers || []);
+      const response = await api.get("/api/teachers/registered-students");
+      if (response.data.success) {
+        setStudents(response.data.students);
+      } else {
+        setStudents(response.data || []);
       }
     } catch (error) {
-      setMessage("Failed to load data");
-      console.error(error);
+      console.error("Error fetching students:", error.response?.data || error.message);
+      setMessage('Failed to load students');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAssignStudent = async (studentId, teacherId = null) => {
-    const assignTeacherId = teacherId || localStorage.getItem("teacherId");
-    
+  /* ===============================
+     FETCH ALL TEACHERS
+     =============================== */
+  const fetchAllTeachers = async () => {
     try {
-      await api.post("/api/teachers/approve-student", { studentId });
-      
-      setMessage("Student assigned successfully!");
-      fetchData();
-      setShowAssignModal(false);
-      
-      setTimeout(() => setMessage(""), 3000);
+      const response = await api.get("/api/teachers/all-teachers");
+      if (response.data.success) {
+        setAllTeachers(response.data.teachers || []);
+      }
     } catch (error) {
-      setMessage("Failed to assign student");
-      console.error(error);
+      console.error("Error fetching teachers:", error.response?.data || error.message);
     }
   };
 
-  const handleRemoveAssignment = async (studentId, teacherId) => {
-    if (!window.confirm("Remove this assignment?")) return;
-
+  /* ===============================
+     APPROVE/ASSIGN STUDENT
+     =============================== */
+  const handleApproveStudent = async (studentId) => {
     try {
-      await api.post("/api/teachers/remove-assignment", { studentId, teacherId });
-      
-      setMessage("Assignment removed!");
-      fetchData();
-      
+      const response = await api.post("/api/teachers/approve-student", { studentId });
+      setMessage(response.data.message || 'Student assigned successfully');
+      fetchRegisteredStudents(); // Refresh the list
       setTimeout(() => setMessage(""), 3000);
     } catch (error) {
-      setMessage("Failed to remove assignment");
-      console.error(error);
+      console.error("Error approving student:", error.response?.data || error.message);
+      setMessage(error.response?.data?.message || 'Failed to assign student');
+      setTimeout(() => setMessage(""), 3000);
+    }
+  };
+
+  /* ===============================
+     ASSIGN TO OTHER TEACHER
+     =============================== */
+  const handleAssignToOther = async (studentId, teacherId) => {
+    try {
+      const response = await api.post("/api/teachers/approve-student", { 
+        studentId, 
+        teacherId 
+      });
+      setMessage(response.data.message || 'Student assigned successfully');
+      fetchRegisteredStudents();
+      setShowAssignModal(false);
+      setTimeout(() => setMessage(""), 3000);
+    } catch (error) {
+      console.error("Error assigning student:", error.response?.data || error.message);
+      setMessage(error.response?.data?.message || 'Failed to assign student');
+      setTimeout(() => setMessage(""), 3000);
     }
   };
 
@@ -76,12 +94,28 @@ const StudentApprovalSection = () => {
     setShowAssignModal(true);
   };
 
+  const goToDashboard = () => {
+    navigate("/teacher/dashboard");
+  };
+
   const currentTeacherId = localStorage.getItem("teacherId");
-  const currentTeacherName = localStorage.getItem("teacherName") || "You";
+
+  if (loading) {
+    return (
+      <div className="students-section">
+        <h2>Student Management</h2>
+        <p className="loading">Loading students...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="students-section">
-      <h2>Student Management</h2>
+      {/* Header with back button */}
+      <div className="section-header">
+        
+        <h2>Student Management</h2>
+      </div>
       
       {message && (
         <div className={`status-message ${message.includes("Failed") ? "error" : "success"}`}>
@@ -89,92 +123,105 @@ const StudentApprovalSection = () => {
         </div>
       )}
 
-      {loading ? (
-        <p className="loading">Loading students...</p>
-      ) : students.length === 0 ? (
+      {students.length === 0 ? (
         <p className="empty-list">No students registered yet.</p>
       ) : (
-        <ul className="students-list">
-          {students.map(student => {
-            const studentTeachers = student.teachers || [];
-            const isAssignedToMe = studentTeachers.some(t => t._id === currentTeacherId);
-
-            return (
-              <li key={student._id} className="student-row">
-                <div className="student-info">
-                  <strong>{student.firstName} {student.lastName}</strong>
-                  <span>{student.email}</span>
-                  <span className="teachers-list">
-                    {studentTeachers.length > 0 ? (
-                      <span>
-                        Teachers: {studentTeachers.map(teacher => (
-                          <span key={teacher._id} className="teacher-tag">
-                            {teacher.firstName} {teacher.lastName}
-                            {teacher._id === currentTeacherId && " (You)"}
-                            {teacher._id !== currentTeacherId && (
-                              <button
-                                className="remove-btn"
-                                onClick={() => handleRemoveAssignment(student._id, teacher._id)}
-                                title="Remove"
-                              >
-                                ×
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </span>
+        <>
+          <div className="students-header">
+            <span>Student</span>
+            <span>Email</span>
+            <span>Teachers</span>
+            <span>Actions</span>
+          </div>
+          
+          <ul className="students-list">
+            {students.map((student) => {
+              const isMine = student.teachers?.some(t => t._id === currentTeacherId);
+              
+              return (
+                <li key={student._id} className="student-row">
+                  <div className="student-info">
+                    <strong>{student.firstName} {student.lastName}</strong>
+                  </div>
+                  
+                  <div className="student-email">
+                    {student.email}
+                  </div>
+                  
+                  <div className="teachers-list">
+                    {student.teachers?.length > 0 ? (
+                      student.teachers.map(teacher => (
+                        <span key={teacher._id} className="teacher-tag">
+                          {teacher.firstName} {teacher.lastName}
+                          {teacher._id === currentTeacherId && " (You)"}
+                        </span>
+                      ))
                     ) : (
-                      "No teachers assigned"
+                      <span className="no-teachers">No teachers assigned</span>
                     )}
-                  </span>
-                </div>
-                
-                <div className="student-actions">
-                  {!isAssignedToMe && (
+                  </div>
+                  
+                  <div className="student-actions">
+                    {!isMine && (
+                      <button 
+                        onClick={() => handleApproveStudent(student._id)}
+                        className="assign-button"
+                      >
+                        Assign to Me
+                      </button>
+                    )}
+                    {isMine && <span className="already-assigned">✓ Assigned</span>}
+                    
                     <button
-                      onClick={() => handleAssignStudent(student._id)}
-                      className="assign-button"
+                      onClick={() => openAssignModal(student)}
+                      className="assign-other-btn"
                     >
-                      Assign to Me
+                      Assign to Other
                     </button>
-                  )}
-                  <button
-                    onClick={() => openAssignModal(student)}
-                    className="assign-other-btn"
-                  >
-                    Assign to Other
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
+      {/* Bottom action buttons */}
+      <div className="section-footer">
+        <button onClick={goToDashboard} className="dashboard-btn">
+          Go to Dashboard
+        </button>
+      </div>
+
+      {/* Assign to Other Teacher Modal */}
       {showAssignModal && selectedStudent && (
         <div className="modal-overlay">
           <div className="assign-modal">
-            <h3>Assign {selectedStudent.firstName} to Teacher</h3>
+            <h3>Assign {selectedStudent.firstName} {selectedStudent.lastName} to Teacher</h3>
             
             <div className="teacher-list">
-              {allTeachers
-                .filter(teacher => 
-                  !selectedStudent.teachers?.some(t => t._id === teacher._id)
-                )
-                .map(teacher => (
-                  <div key={teacher._id} className="teacher-option">
-                    <span>
-                      {teacher.firstName} {teacher.lastName}
-                      {teacher._id === currentTeacherId && " (You)"}
-                    </span>
-                    <button
-                      onClick={() => handleAssignStudent(selectedStudent._id, teacher._id)}
-                      className="assign-btn"
-                    >
-                      Assign
-                    </button>
-                  </div>
-                ))}
+              {allTeachers.length === 0 ? (
+                <p className="no-teachers-available">No teachers available</p>
+              ) : (
+                allTeachers
+                  .filter(teacher => {
+                    return !selectedStudent.teachers?.some(t => t._id === teacher._id);
+                  })
+                  .map(teacher => (
+                    <div key={teacher._id} className="teacher-option">
+                      <span>
+                        {teacher.firstName} {teacher.lastName}
+                        {teacher._id === currentTeacherId && " (You)"}
+                      </span>
+                      <button
+                        onClick={() => handleAssignToOther(selectedStudent._id, teacher._id)}
+                        className="assign-btn"
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  ))
+              )}
             </div>
             
             <button

@@ -5,7 +5,7 @@ import io from 'socket.io-client';
 import {
   Mic, MicOff, Video, VideoOff, Monitor, Users, MessageSquare,
   ScreenShare, LogOut, Copy, Check, Clock, X, VolumeX, Share2,
-  Maximize, Minimize
+  Maximize, Minimize, StopCircle
 } from 'lucide-react';
 import './MeetingRoom.css';
 
@@ -28,6 +28,7 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [screenShareAvailable, setScreenShareAvailable] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   
   // Participants
@@ -42,14 +43,17 @@ const MeetingRoom = ({ role = 'student' }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showLeaveOptions, setShowLeaveOptions] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [screenShareParticipant, setScreenShareParticipant] = useState(null);
   
   // Refs
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const screenVideoRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnections = useRef({});
+  const screenPeerConnections = useRef({});
 
   // STUN Servers
   const configuration = {
@@ -81,7 +85,6 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     console.log('🔄 Connecting to:', BACKEND_URL);
     
-    // IMPORTANT: Use the BACKEND_URL, not localhost
     const socket = io(BACKEND_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -140,12 +143,50 @@ const MeetingRoom = ({ role = 'student' }) => {
     socket.on('receive-answer', handleReceiveAnswer);
     socket.on('receive-ice-candidate', handleReceiveICECandidate);
     
+    // Screen sharing socket events
+    socket.on('screen-share-started', ({ userId, userName }) => {
+      console.log('📺 Screen sharing started by:', userName);
+      setScreenShareParticipant({ userId, userName });
+      if (userId !== newUserId) {
+        createScreenPeerConnection(userId);
+      }
+    });
+
+    socket.on('screen-share-stopped', ({ userId }) => {
+      console.log('📺 Screen sharing stopped by:', userId);
+      if (screenShareParticipant?.userId === userId) {
+        setScreenShareParticipant(null);
+      }
+      if (screenPeerConnections.current[userId]) {
+        screenPeerConnections.current[userId].close();
+        delete screenPeerConnections.current[userId];
+      }
+      // Remove screen share video element
+      const screenElement = document.getElementById('screen-share-video');
+      if (screenElement) {
+        screenElement.srcObject = null;
+      }
+    });
+
+    socket.on('receive-screen-offer', handleReceiveScreenOffer);
+    socket.on('receive-screen-answer', handleReceiveScreenAnswer);
+    socket.on('receive-screen-ice-candidate', handleReceiveScreenICECandidate);
+    
     socket.on('user-left', (leftUserId) => {
       console.log('👋 User left:', leftUserId);
       
       if (peerConnections.current[leftUserId]) {
         peerConnections.current[leftUserId].close();
         delete peerConnections.current[leftUserId];
+      }
+      
+      if (screenPeerConnections.current[leftUserId]) {
+        screenPeerConnections.current[leftUserId].close();
+        delete screenPeerConnections.current[leftUserId];
+      }
+
+      if (screenShareParticipant?.userId === leftUserId) {
+        setScreenShareParticipant(null);
       }
       
       setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
@@ -173,9 +214,15 @@ const MeetingRoom = ({ role = 'student' }) => {
     trackAttendance(newUserId);
 
     return () => {
+      // Clean up all peer connections
       Object.values(peerConnections.current).forEach(pc => pc.close());
+      Object.values(screenPeerConnections.current).forEach(pc => pc.close());
+      
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
       if (socketRef.current) {
         socketRef.current.emit('leave-meeting', { meetingId, userId: newUserId });
@@ -336,6 +383,217 @@ const MeetingRoom = ({ role = 'student' }) => {
     }
   };
 
+  // ============ SCREEN SHARING FUNCTIONS ============
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      stopScreenSharing();
+    } else {
+      try {
+        await startScreenSharing();
+      } catch (error) {
+        console.error('Error starting screen share:', error);
+        alert('Could not start screen sharing. Please check permissions.');
+      }
+    }
+  };
+
+  const startScreenSharing = async () => {
+    try {
+      // Check if screen sharing is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert('Screen sharing is not supported in this browser');
+        return;
+      }
+
+      // Get screen stream
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'always',
+          displaySurface: 'monitor'
+        },
+        audio: false
+      });
+      
+      screenStreamRef.current = screenStream;
+      
+      // Handle when user stops sharing via browser UI
+      screenStream.getVideoTracks()[0].onended = () => {
+        stopScreenSharing();
+      };
+
+      // Update UI state
+      setIsScreenSharing(true);
+      setScreenShareParticipant({ userId, userName });
+      
+      // Notify others that screen sharing started
+      socketRef.current.emit('screen-share-started', {
+        meetingId,
+        userId,
+        userName
+      });
+
+      // Create screen share peer connections for all existing participants
+      participants.forEach(participant => {
+        if (participant.userId !== userId) {
+          createScreenPeerConnection(participant.userId, screenStream);
+        }
+      });
+
+      // Display local screen preview
+      const screenPreview = document.getElementById('screen-share-preview');
+      if (screenPreview) {
+        screenPreview.srcObject = screenStream;
+      }
+
+      // Listen for track ended (when user stops sharing)
+      screenStream.getTracks().forEach(track => {
+        track.onended = () => {
+          stopScreenSharing();
+        };
+      });
+
+    } catch (error) {
+      console.error('Screen sharing error:', error);
+      setScreenShareAvailable(true);
+    }
+  };
+
+  const stopScreenSharing = () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      screenStreamRef.current = null;
+    }
+
+    setIsScreenSharing(false);
+    setScreenShareParticipant(null);
+
+    // Notify others that screen sharing stopped
+    socketRef.current.emit('screen-share-stopped', {
+      meetingId,
+      userId
+    });
+
+    // Close all screen share peer connections
+    Object.values(screenPeerConnections.current).forEach(pc => pc.close());
+    screenPeerConnections.current = {};
+
+    // Clear screen preview
+    const screenPreview = document.getElementById('screen-share-preview');
+    if (screenPreview) {
+      screenPreview.srcObject = null;
+    }
+  };
+
+  const createScreenPeerConnection = (targetUserId, stream = screenStreamRef.current) => {
+    if (!stream) return;
+
+    console.log('Creating screen share connection for:', targetUserId);
+    
+    const pc = new RTCPeerConnection(configuration);
+    screenPeerConnections.current[targetUserId] = pc;
+
+    // Add screen track
+    stream.getTracks().forEach(track => {
+      pc.addTrack(track, stream);
+    });
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current.emit('send-screen-ice-candidate', {
+          meetingId,
+          targetUserId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    pc.createOffer()
+      .then(offer => pc.setLocalDescription(offer))
+      .then(() => {
+        socketRef.current.emit('send-screen-offer', {
+          meetingId,
+          targetUserId,
+          offer: pc.localDescription
+        });
+      })
+      .catch(error => console.error('Error creating screen offer:', error));
+
+    return pc;
+  };
+
+  const handleReceiveScreenOffer = async ({ fromUserId, offer }) => {
+    console.log('Received screen offer from:', fromUserId);
+    
+    if (!screenPeerConnections.current[fromUserId]) {
+      const pc = new RTCPeerConnection(configuration);
+      screenPeerConnections.current[fromUserId] = pc;
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socketRef.current.emit('send-screen-ice-candidate', {
+            meetingId,
+            targetUserId: fromUserId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log('Received screen track from:', fromUserId);
+        const [remoteStream] = event.streams;
+        
+        const screenElement = document.getElementById('screen-share-video');
+        if (screenElement) {
+          screenElement.srcObject = remoteStream;
+        }
+      };
+    }
+
+    const pc = screenPeerConnections.current[fromUserId];
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socketRef.current.emit('send-screen-answer', {
+        meetingId,
+        targetUserId: fromUserId,
+        answer: pc.localDescription
+      });
+    } catch (error) {
+      console.error('Error handling screen offer:', error);
+    }
+  };
+
+  const handleReceiveScreenAnswer = async ({ fromUserId, answer }) => {
+    console.log('Received screen answer from:', fromUserId);
+    
+    const pc = screenPeerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (error) {
+        console.error('Error handling screen answer:', error);
+      }
+    }
+  };
+
+  const handleReceiveScreenICECandidate = async ({ fromUserId, candidate }) => {
+    console.log('Received screen ICE candidate from:', fromUserId);
+    
+    const pc = screenPeerConnections.current[fromUserId];
+    if (pc) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Error adding screen ICE candidate:', error);
+      }
+    }
+  };
+
   // ============ MEDIA FUNCTIONS ============
   useEffect(() => {
     const initLocalStream = async () => {
@@ -479,11 +737,19 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const leaveMeetingOnly = () => {
+    // Stop screen sharing if active
+    if (isScreenSharing) {
+      stopScreenSharing();
+    }
     navigate(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
   };
 
   const endMeetingForAll = () => {
     if (role !== 'teacher') return;
+    // Stop screen sharing if active
+    if (isScreenSharing) {
+      stopScreenSharing();
+    }
     socketRef.current?.emit('end-meeting', { meetingId });
     navigate('/teacher/dashboard');
   };
@@ -498,6 +764,14 @@ const MeetingRoom = ({ role = 'student' }) => {
         <div className={`connection-banner ${connectionStatus}`}>
           {connectionStatus === 'connecting' && '🔄 Connecting to server...'}
           {connectionStatus === 'error' && '❌ Connection failed. Retrying...'}
+        </div>
+      )}
+
+      {/* Screen Share Banner */}
+      {screenShareParticipant && screenShareParticipant.userId !== userId && (
+        <div className="screen-share-banner">
+          <Monitor size={16} />
+          <span>{screenShareParticipant.userName} is sharing their screen</span>
         </div>
       )}
 
@@ -531,7 +805,40 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* Main Content */}
       <main className="meeting-main">
         <div className={`video-container ${showParticipants || showChat ? 'with-sidebar' : ''}`}>
-          <div className="video-grid">
+          {/* Screen Share View */}
+          {(screenShareParticipant || isScreenSharing) && (
+            <div className="screen-share-container">
+              <div className="screen-share-header">
+                <Monitor size={16} />
+                <span>
+                  {isScreenSharing 
+                    ? 'You are sharing your screen' 
+                    : `${screenShareParticipant?.userName} is sharing their screen`}
+                </span>
+                {isScreenSharing && (
+                  <button 
+                    className="stop-screen-share-btn"
+                    onClick={stopScreenSharing}
+                  >
+                    <StopCircle size={16} />
+                    Stop Sharing
+                  </button>
+                )}
+              </div>
+              <div className="screen-share-video-wrapper">
+                <video
+                  id={isScreenSharing ? 'screen-share-preview' : 'screen-share-video'}
+                  ref={isScreenSharing ? screenVideoRef : null}
+                  autoPlay
+                  playsInline
+                  className="screen-share-video"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Video Grid */}
+          <div className={`video-grid ${screenShareParticipant || isScreenSharing ? 'with-screen-share' : ''}`}>
             {/* Local Video */}
             <div className="video-tile local" id="local-tile">
               <video
@@ -571,6 +878,12 @@ const MeetingRoom = ({ role = 'student' }) => {
                   <span className="name">{participant.userName}</span>
                   {participant.role === 'teacher' && <span className="host-badge">HOST</span>}
                   {!participant.audioEnabled && <MicOff size={14} />}
+                  {participant.userId === screenShareParticipant?.userId && (
+                    <span className="screen-share-badge">
+                      <Monitor size={12} />
+                      Sharing
+                    </span>
+                  )}
                 </div>
                 {role === 'teacher' && participant.role !== 'teacher' && (
                   <button 
@@ -603,6 +916,7 @@ const MeetingRoom = ({ role = 'student' }) => {
                   <span className="name">{userName} (You)</span>
                   <span className="status">
                     {micOn ? 'Mic on' : 'Muted'} • {cameraOn ? 'Camera on' : 'Camera off'}
+                    {isScreenSharing && ' • Sharing screen'}
                   </span>
                 </div>
               </div>
@@ -618,6 +932,7 @@ const MeetingRoom = ({ role = 'student' }) => {
                     </span>
                     <span className="status">
                       {p.audioEnabled ? 'Mic on' : 'Muted'}
+                      {p.userId === screenShareParticipant?.userId && ' • Sharing screen'}
                     </span>
                   </div>
                   {role === 'teacher' && p.role !== 'teacher' && (
@@ -706,13 +1021,26 @@ const MeetingRoom = ({ role = 'student' }) => {
           <button className={`control-btn ${!cameraOn ? 'off' : ''}`} onClick={toggleCamera}>
             {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
           </button>
-          <button className={`control-btn ${showParticipants ? 'active' : ''}`} onClick={toggleParticipants}>
+          <button 
+            className={`control-btn ${showParticipants ? 'active' : ''}`} 
+            onClick={toggleParticipants}
+          >
             <Users size={22} />
             {totalParticipants > 0 && <span className="badge">{totalParticipants}</span>}
           </button>
         </div>
 
         <div className="footer-center">
+          <button 
+            className={`control-btn screen-share ${isScreenSharing ? 'active' : ''}`} 
+            onClick={toggleScreenShare}
+            disabled={!screenShareAvailable || (screenShareParticipant && screenShareParticipant.userId !== userId)}
+            title={!screenShareAvailable ? 'Screen sharing not available' : 
+                   (screenShareParticipant && screenShareParticipant.userId !== userId) ? 'Someone else is sharing' : 
+                   'Share screen'}
+          >
+            {isScreenSharing ? <StopCircle size={22} /> : <Monitor size={22} />}
+          </button>
           <button className={`control-btn ${showChat ? 'active' : ''}`} onClick={toggleChat}>
             <MessageSquare size={22} />
             {unreadMessages > 0 && <span className="badge">{unreadMessages}</span>}

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import api from '../api/config';
 import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import './CreateMeeting.css';
 
 const CreateMeeting = () => {
@@ -43,42 +44,62 @@ const CreateMeeting = () => {
   };
 
   return (
-    <div className="create-meeting-container">
-      <h2>Create Meeting</h2>
-      <form onSubmit={handleCreateMeeting}>
-        <input
-          type="text"
-          placeholder="Meeting Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-        <button type="submit" disabled={loading}>
-          {loading ? 'Creating...' : 'Create Meeting'}
+    <div className="create-meeting-wrapper">
+      <div className="create-meeting-container">
+        {/* BACK ARROW */}
+        <button
+          className="back-arrow"
+          onClick={() => navigate("/teacher/dashboard")}
+          title="Back to Dashboard"
+        >
+          <ArrowLeft size={20} />
         </button>
-      </form>
-      {message && <p className="success-message">{message}</p>}
-      {meetingLink && (
-        <div className="meeting-link-section">
-          <h3>Your Meeting Link:</h3>
+
+        <h2>Create Meeting</h2>
+
+        <form onSubmit={handleCreateMeeting}>
           <input
             type="text"
-            value={meetingLink}
-            readOnly
-            className="link-input"
+            placeholder="Meeting Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
           />
-          <button onClick={copyToClipboard} className="copy-btn">
-            Copy Link
+
+          <button type="submit" disabled={loading}>
+            {loading ? "Creating..." : "Create Meeting"}
           </button>
-          <p>Share this link with your students. Approved students will receive an email notification.</p>
-          <button onClick={startMeeting} className="start-btn">
-            Start Meeting (Join as Teacher)
-          </button>
-        </div>
-      )}
-      <button onClick={() => navigate('/teacher/dashboard')} className="back-btn">
-        Back to Dashboard
-      </button>
+        </form>
+
+        {message && <p className="success-message">{message}</p>}
+
+        {meetingLink && (
+          <div className="meeting-link-section">
+            <h3>Your Meeting Link</h3>
+
+            <input
+              type="text"
+              value={meetingLink}
+              readOnly
+              className="link-input"
+            />
+
+            <div className="link-actions">
+              <button onClick={copyToClipboard} className="copy-btn">
+                Copy Link
+              </button>
+
+              <button onClick={startMeeting} className="start-btn">
+                Start Meeting
+              </button>
+            </div>
+
+            <p className="helper-text">
+              Share this link with approved students.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

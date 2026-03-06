@@ -1,4 +1,4 @@
-// src/App.js  — updated version with dedicated student management route
+// src/App.js — updated version with dedicated student management route
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -20,8 +20,8 @@ import JoinMeeting from './components/JoinMeeting';
 import MeetingRoom from './components/MeetingRoom';
 import MeetingHistory from './components/MeetingHistory';
 
-// NEW: Student management page
-import ManageStudents from './components/Teacher/StudentApprovalSection';   // ← or rename to ManageStudents.js
+// Student management page
+import StudentApprovalSection from './components/Teacher/StudentApprovalSection';
 import LMSPage from './components/Teacher/LMSPage';
 import StudentLMS from './components/Student/StudentLMS';
 
@@ -36,6 +36,7 @@ import StudentLeaderboard from './components/Student/StudentLeaderboard';
 
 import ProctoredQuiz from './components/Student/ProctoredQuiz';
 import AttendancePage from './components/AttendancePage';
+
 // Protected Route wrapper
 const ProtectedRoute = ({ children, redirectTo }) => {
   const token = localStorage.getItem('token');
@@ -47,8 +48,7 @@ function App() {
     <Router>
       <div className="App">
         <Routes>
-
-          {/* Public */}
+          {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
           <Route path="/teacher/register" element={<TeacherRegister />} />
           <Route path="/teacher/login" element={<TeacherLogin />} />
@@ -56,19 +56,26 @@ function App() {
           <Route path="/student/login" element={<StudentLogin />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/meeting/:meetingId" element={<JoinMeeting />} />
+          
+          {/* Public LMS Routes */}
           <Route path="/teacher/lms" element={<LMSPage />} />
           <Route path="/student/lms" element={<StudentLMS />} />
+          <Route path="/teacher/student-approval" element={<StudentApprovalSection />} /> {/* Temporary public route for testing - FIXED: moved to protected route below */}
+          {/* Teacher Quiz Routes */}
           <Route path="/teacher/quizzes" element={<TeacherQuizList />} />
-        <Route path="/teacher/leaderboard/:quizId" element={<Leaderboard />} />
-        <Route path="/student/quizzes" element={<QuizList />} />
-        <Route path="/take-quiz/:quizId" element={<TakeQuiz />} />
-        <Route path="/teacher/create-quiz" element={<CreateQuiz />} />
-        <Route path="/teacher/leaderboard" element={<TeacherLeaderboardSelection />} />
-        <Route path="/teacher/attendance" element={<AttendancePage role="teacher" />} />
-<Route path="/student/attendance" element={<AttendancePage role="student" />} />
-        <Route path="/student/leaderboard" element={<StudentLeaderboard />} />
-        <Route path="/proctored-quiz/:quizId" element={<ProctoredQuiz />} />
-          {/* Teacher Protected */}
+          <Route path="/teacher/leaderboard/:quizId" element={<Leaderboard />} />
+          <Route path="/teacher/create-quiz" element={<CreateQuiz />} />
+          <Route path="/teacher/leaderboard" element={<TeacherLeaderboardSelection />} />
+          <Route path="/teacher/attendance" element={<AttendancePage role="teacher" />} />
+          
+          {/* Student Quiz Routes */}
+          <Route path="/student/quizzes" element={<QuizList />} />
+          <Route path="/take-quiz/:quizId" element={<TakeQuiz />} />
+          <Route path="/student/attendance" element={<AttendancePage role="student" />} />
+          <Route path="/student/leaderboard" element={<StudentLeaderboard />} />
+          <Route path="/proctored-quiz/:quizId" element={<ProctoredQuiz />} />
+
+          {/* Teacher Protected Routes */}
           <Route
             path="/teacher/dashboard"
             element={
@@ -87,12 +94,12 @@ function App() {
             }
           />
 
-          {/* ──── NEW: Dedicated student management page ──── */}
+          {/* Dedicated student management page - FIXED: using StudentApprovalSection instead of ManageStudents */}
           <Route
             path="/teacher/students"
             element={
               <ProtectedRoute redirectTo="/teacher/login">
-                <ManageStudents />
+                <StudentApprovalSection />
               </ProtectedRoute>
             }
           />
@@ -115,7 +122,7 @@ function App() {
             }
           />
 
-          {/* Student Protected */}
+          {/* Student Protected Routes */}
           <Route
             path="/student/dashboard"
             element={
@@ -124,6 +131,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/meeting-links"
             element={
@@ -132,6 +140,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/student/meeting-room/:meetingId"
             element={
@@ -141,9 +150,8 @@ function App() {
             }
           />
 
-          {/* Fallback */}
+          {/* Fallback Route */}
           <Route path="*" element={<Navigate to="/" replace />} />
-
         </Routes>
       </div>
     </Router>

@@ -1,20 +1,33 @@
 // src/components/Teacher/TeacherDashboard.js
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import api from "../../api/config"; // Import the configured API instance
+import api from "../../api/config";
 import './TeacherDashboard.css';
-import { Calendar } from 'lucide-react';
+import { 
+  Calendar, 
+  Video, 
+  CalendarDays, 
+  FileText, 
+  Trophy, 
+  BookOpen, 
+  BarChart3,
+  Users
+} from 'lucide-react';
 
 const TeacherDashboard = () => {
   const [registeredStudents, setRegisteredStudents] = useState([]);
   const [showApprovalPage, setShowApprovalPage] = useState(false);
+  const [showStudents, setShowStudents] = useState(false);
+  const [students, setStudents] = useState([]);
   const [message, setMessage] = useState('');
   const [teacherName, setTeacherName] = useState('Teacher');
+  const [teacherId, setTeacherId] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchTeacherProfile();
     fetchRegisteredStudents();
+    fetchAllStudents();
   }, []);
 
   const fetchTeacherProfile = async () => {
@@ -29,12 +42,18 @@ const TeacherDashboard = () => {
       // Store teacherId for later use
       if (response.data._id) {
         localStorage.setItem('teacherId', response.data._id);
+        setTeacherId(response.data._id);
       }
     } catch (error) {
       console.error("Error fetching teacher profile:", error.response?.data || error.message);
       const stored = JSON.parse(localStorage.getItem('teacherUser') || '{}');
       const fullName = `${stored.firstName || ''} ${stored.lastName || ''}`.trim();
       setTeacherName(fullName || 'Teacher');
+      
+      const storedTeacherId = localStorage.getItem('teacherId');
+      if (storedTeacherId) {
+        setTeacherId(storedTeacherId);
+      }
     }
   };
 
@@ -52,14 +71,17 @@ const TeacherDashboard = () => {
     }
   };
 
-  const handleApproveStudent = async (studentId) => {
+  const fetchAllStudents = async () => {
     try {
-      const response = await api.post("/api/teachers/approve-student", { studentId });
-      setMessage(response.data.message || 'Student assigned successfully');
-      fetchRegisteredStudents(); // Refresh the list
+      const response = await api.get("/api/teachers/all-students");
+      if (response.data.success) {
+        setStudents(response.data.students);
+      } else {
+        setStudents([]);
+      }
     } catch (error) {
-      console.error("Error approving student:", error.response?.data || error.message);
-      setMessage(error.response?.data?.message || 'Failed to assign student');
+      console.error("Error fetching all students:", error.response?.data || error.message);
+      setStudents([]);
     }
   };
 
@@ -72,90 +94,56 @@ const TeacherDashboard = () => {
 
   return (
     <div className="teacher-dashboard">
+      {/* HEADER */}
       <header className="dashboard-header">
         <h1>Welcome, {teacherName}!</h1>
-        <button onClick={handleLogout} className="logout-button">Logout</button>
+        <button className="logout-button" onClick={handleLogout}>
+          Logout
+        </button>
       </header>
 
-      <div className="quick-actions">
-        <Link to="/teacher/create-meeting" className="action-card primary">
-          <span className="icon">📹</span>
-          <span>Create Meeting</span>
+      {/* QUICK ACTIONS */}
+      <h2 className="section-title">Quick Actions</h2>
+
+      <section className="quick-actions">
+        <Link className="action-card" to="/teacher/create-meeting">
+          <Video className="card-icon" size={42} />
+          Create Meeting
         </Link>
-        <Link to="/teacher/my-meetings" className="action-card">
-          <span className="icon">🗓️</span>
-          <span>My Meetings</span>
+
+        <Link className="action-card" to="/teacher/my-meetings">
+          <CalendarDays className="card-icon" size={42} />
+          My Meetings
         </Link>
-        <Link to="/teacher/create-quiz" className="action-card">
-          <span className="icon">📝</span>
-          <span>Create Quiz</span>
+
+        <Link className="action-card" to="/teacher/create-quiz">
+          <FileText className="card-icon" size={42} />
+          Create Quiz
         </Link>
-        
-        <Link to="/teacher/leaderboard" className="action-card">
-          <span className="icon">🏆</span>
-          <span>Leaderboard</span>
+
+        <Link className="action-card" to="/teacher/leaderboard">
+          <Trophy className="card-icon" size={42} />
+          Leaderboard
         </Link>
-        
-        <Link to="/teacher/lms" className="action-card">
-          <span className="icon">📚</span>
-          <span>LMS – Upload & Manage Files</span>
+
+        <Link className="action-card" to="/teacher/lms">
+          <BookOpen className="card-icon" size={42} />
+          Course Materials
         </Link>
-      </div>
-      
-      <div className="dashboard-actions">
-        <button 
-          className="dashboard-btn attendance-btn"
-          onClick={() => navigate('/teacher/attendance')}
-        >
-          <Calendar size={20} />
+
+        <Link className="action-card" to="/teacher/attendance">
+          <BarChart3 className="card-icon" size={42} />
           Attendance Records
-        </button>
-      </div>
+        </Link>
 
-      <button 
-        className="toggle-students-btn"
-        onClick={() => setShowApprovalPage(!showApprovalPage)}
-      >
-        {showApprovalPage ? "Hide" : "Manage"} Student Access
-      </button>
+        {/* NEW: Student Approval Navigation Button */}
+        <Link className="action-card" to="/teacher/student-approval">
+          <Users className="card-icon" size={42} />
+          Student Approval
+        </Link>
+      </section>
 
-      {showApprovalPage && (
-        <div className="students-section">
-          <h2>Student Management</h2>
-          {message && <p className="status-message">{message}</p>}
-          {registeredStudents.length === 0 ? (
-            <p>No students registered yet.</p>
-          ) : (
-            <ul className="students-list">
-              {registeredStudents.map(student => {
-                const teacherId = localStorage.getItem('teacherId');
-                const isMine = student.teachers?.some(t => t._id === teacherId);
-                
-                return (
-                  <li key={student._id} className="student-row">
-                    <div className="student-info">
-                      <strong>{student.firstName} {student.lastName}</strong>
-                      <span>{student.email}</span>
-                      <span className="teachers-list">
-                        Teachers: {student.teachers?.map(t => `${t.firstName} ${t.lastName}`).join(', ') || 'None'}
-                      </span>
-                    </div>
-                    {!isMine && (
-                      <button 
-                        onClick={() => handleApproveStudent(student._id)}
-                        className="assign-button"
-                      >
-                        Assign to Me
-                      </button>
-                    )}
-                    {isMine && <span className="already-assigned">✓ Assigned</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+      {/* REGISTERED STUDENTS */}
     </div>
   );
 };
