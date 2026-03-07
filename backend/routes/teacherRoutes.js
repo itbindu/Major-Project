@@ -1,4 +1,4 @@
-// Updated file: backend/routes/teacherRoutes.js - Complete fixed version with Cloudinary
+// backend/routes/teacherRoutes.js - Complete version with filename cleaning
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -12,7 +12,7 @@ const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { generateAndSendOtp } = require('../services/otpService');
 const authenticateToken = require('../middleware/auth');
-const { sendEmail } = require('../services/emailService'); // Brevo email service
+const { sendEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -40,48 +40,77 @@ const storage = new CloudinaryStorage({
     resource_type: 'auto',
     public_id: (req, file) => {
       const timestamp = Date.now();
-      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+      // Remove extension from original name
+      const originalName = file.originalname;
+      const lastDotIndex = originalName.lastIndexOf('.');
+      let baseName = originalName;
+      
+      if (lastDotIndex !== -1) {
+        baseName = originalName.substring(0, lastDotIndex);
+      }
+      
+      // Clean the filename
+      const sanitizedName = baseName.replace(/[^a-zA-Z0-9]/g, '_');
       return `${timestamp}-${sanitizedName}`;
     }
   }
 });
 
-// File filter - accept all common file types
+// File filter - accept ALL common file types
 const fileFilter = (req, file, cb) => {
+  // Allow all file types
   const allowedTypes = [
     // Images
-    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/tiff',
     // Documents
     'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain', 'text/csv', 'text/markdown',
+    'text/plain', 'text/csv', 'text/markdown', 'text/html', 'text/rtf',
     // Videos
-    'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime',
+    'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska',
+    'video/mpeg', 'video/3gpp', 'video/mp2t',
+    // Audio
+    'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3', 'audio/m4a', 'audio/aac', 'audio/flac',
     // Archives
     'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed',
-    // Audio
-    'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'
+    'application/x-7z-compressed', 'application/x-tar', 'application/gzip',
+    // Other
+    'application/json', 'application/xml', 'application/rtf', 'application/octet-stream'
   ];
 
-  if (allowedTypes.includes(file.mimetype)) {
+  // Allow all common file extensions
+  const allowedExtensions = [
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.md', '.html', '.rtf',
+    '.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.mpeg', '.3gp',
+    '.mp3', '.wav', '.m4a', '.aac', '.flac',
+    '.zip', '.rar', '.7z', '.tar', '.gz',
+    '.json', '.xml'
+  ];
+
+  // Check by mimetype or extension
+  const ext = path.extname(file.originalname).toLowerCase();
+  
+  if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('File type not supported. Please upload images, PDFs, documents, videos, or audio files.'), false);
+    console.log(`⚠️ File type may not be supported: ${file.mimetype}, ${ext}`);
+    // Still allow it - let Cloudinary handle it
+    cb(null, true);
   }
 };
 
 // Configure multer with Cloudinary storage
 const upload = multer({ 
   storage: storage,
-  limits: {
-    fileSize: 200 * 1024 * 1024 // 200MB max file size
+  limits: { 
+    fileSize: 500 * 1024 * 1024 // 500MB max file size
   },
   fileFilter: fileFilter
 });
 
 // ============ OTP ROUTES ============
-// Send OTP for teacher registration
 router.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: 'Email is required' });
@@ -89,7 +118,6 @@ router.post('/send-otp', async (req, res) => {
   res.status(otpResult.success ? 200 : 500).json(otpResult);
 });
 
-// Verify OTP for teacher
 router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
   if (!email || !otp) return res.status(400).json({ message: 'Email and OTP are required' });
@@ -99,7 +127,6 @@ router.post('/verify-otp', async (req, res) => {
 });
 
 // ============ AUTH ROUTES ============
-// Signup teacher after OTP verification
 router.post('/signup', async (req, res) => {
   const { firstName, lastName, email, phoneNumber, password } = req.body;
   if (!firstName || !lastName || !email || !phoneNumber || !password) {
@@ -130,11 +157,10 @@ router.post('/signup', async (req, res) => {
     res.status(200).json({ message: 'Teacher account created successfully!' });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ message: `Signup failed. Try again. Error: ${error.message}` });
+    res.status(500).json({ message: `Signup failed: ${error.message}` });
   }
 });
 
-// Login teacher
 router.post('/login', async (req, res) => {
   const { emailOrPhone, password } = req.body;
   if (!emailOrPhone || !password) return res.status(400).json({ message: 'Email/Phone and password are required' });
@@ -163,19 +189,13 @@ router.post('/login', async (req, res) => {
       id: user._id
     };
     
-    res.status(200).json({ 
-      token, 
-      userId: user._id, 
-      user: userData,
-      role: 'teacher'
-    });
+    res.status(200).json({ token, userId: user._id, user: userData, role: 'teacher' });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get teacher profile
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
     const teacher = await Teacher.findById(req.user.id)
@@ -191,7 +211,6 @@ router.get('/profile', authenticateToken, async (req, res) => {
 });
 
 // ============ STUDENT MANAGEMENT ROUTES ============
-// Fetch ALL students with populated teachers info
 router.get('/registered-students', authenticateToken, async (req, res) => {
   try {
     const students = await Student.find()
@@ -204,11 +223,9 @@ router.get('/registered-students', authenticateToken, async (req, res) => {
   }
 });
 
-// Fetch all teachers (for assignment modal)
 router.get('/all-teachers', authenticateToken, async (req, res) => {
   try {
-    const teachers = await Teacher.find()
-      .select('firstName lastName email');
+    const teachers = await Teacher.find().select('firstName lastName email');
     res.status(200).json({ success: true, teachers });
   } catch (error) {
     console.error('Fetch teachers error:', error);
@@ -216,7 +233,6 @@ router.get('/all-teachers', authenticateToken, async (req, res) => {
   }
 });
 
-// Fetch all students (for teacher dashboard)
 router.get('/all-students', authenticateToken, async (req, res) => {
   try {
     const students = await Student.find()
@@ -229,7 +245,6 @@ router.get('/all-students', authenticateToken, async (req, res) => {
   }
 });
 
-// Assign/Approve student - add current teacher to array if not already
 router.post('/approve-student', authenticateToken, async (req, res) => {
   const { studentId } = req.body;
   if (!studentId) return res.status(400).json({ message: 'Student ID is required' });
@@ -238,9 +253,7 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ message: 'Student not found' });
     
-    if (!student.teachers) {
-      student.teachers = [];
-    }
+    if (!student.teachers) student.teachers = [];
     
     if (student.teachers.includes(req.user.id)) {
       return res.status(400).json({ message: 'You are already assigned to this student.' });
@@ -248,14 +261,9 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     
     student.teachers.push(req.user.id);
     
-    if (student.teachers.length === 1) {
-      student.isApproved = true;
-    }
+    if (student.teachers.length === 1) student.isApproved = true;
     
-    await Teacher.findByIdAndUpdate(req.user.id, { 
-      $addToSet: { students: studentId } 
-    });
-    
+    await Teacher.findByIdAndUpdate(req.user.id, { $addToSet: { students: studentId } });
     await student.save();
     
     const teacher = await Teacher.findById(req.user.id);
@@ -264,8 +272,7 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     const htmlContent = `
       <h2>Dear ${student.firstName} ${student.lastName},</h2>
       <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
-      <p>You can now access their meetings and learning materials.</p>
-      <p>Login to your dashboard: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
+      <p>Login: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
     `;
     
     await sendEmail(
@@ -274,17 +281,13 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
       htmlContent
     );
 
-    res.status(200).json({ 
-      success: true,
-      message: `Student assigned successfully. Total teachers: ${student.teachers.length}` 
-    });
+    res.status(200).json({ success: true, message: `Student assigned successfully.` });
   } catch (error) {
     console.error('Assign error:', error);
     res.status(500).json({ message: 'Failed to assign student' });
   }
 });
 
-// Assign student to specific teacher
 router.post('/assign-student', authenticateToken, async (req, res) => {
   const { studentId, teacherId } = req.body;
   
@@ -299,24 +302,17 @@ router.post('/assign-student', authenticateToken, async (req, res) => {
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) return res.status(404).json({ message: 'Teacher not found' });
     
-    if (!student.teachers) {
-      student.teachers = [];
-    }
+    if (!student.teachers) student.teachers = [];
     
     if (student.teachers.includes(teacherId)) {
-      return res.status(400).json({ message: 'Teacher already assigned to this student' });
+      return res.status(400).json({ message: 'Teacher already assigned' });
     }
     
     student.teachers.push(teacherId);
     
-    if (student.teachers.length === 1) {
-      student.isApproved = true;
-    }
+    if (student.teachers.length === 1) student.isApproved = true;
     
-    await Teacher.findByIdAndUpdate(teacherId, { 
-      $addToSet: { students: studentId } 
-    });
-    
+    await Teacher.findByIdAndUpdate(teacherId, { $addToSet: { students: studentId } });
     await student.save();
     
     const frontendUrl = getFrontendUrl();
@@ -324,8 +320,7 @@ router.post('/assign-student', authenticateToken, async (req, res) => {
     const htmlContent = `
       <h2>Dear ${student.firstName} ${student.lastName},</h2>
       <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
-      <p>You can now access their meetings and learning materials.</p>
-      <p>Login to your dashboard: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
+      <p>Login: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
     `;
     
     await sendEmail(
@@ -334,17 +329,13 @@ router.post('/assign-student', authenticateToken, async (req, res) => {
       htmlContent
     );
 
-    res.status(200).json({ 
-      success: true,
-      message: `Student assigned to ${teacher.firstName} ${teacher.lastName} successfully` 
-    });
+    res.status(200).json({ success: true, message: `Student assigned successfully` });
   } catch (error) {
-    console.error('Assign to teacher error:', error);
-    res.status(500).json({ message: 'Failed to assign student to teacher' });
+    console.error('Assign error:', error);
+    res.status(500).json({ message: 'Failed to assign student' });
   }
 });
 
-// Remove student assignment
 router.post('/remove-assignment', authenticateToken, async (req, res) => {
   const { studentId, teacherId } = req.body;
   
@@ -359,16 +350,10 @@ router.post('/remove-assignment', authenticateToken, async (req, res) => {
     student.teachers = student.teachers.filter(id => id.toString() !== teacherId);
     student.isApproved = student.teachers.length > 0;
     
-    await Teacher.findByIdAndUpdate(teacherId, { 
-      $pull: { students: studentId } 
-    });
-    
+    await Teacher.findByIdAndUpdate(teacherId, { $pull: { students: studentId } });
     await student.save();
 
-    res.status(200).json({ 
-      success: true,
-      message: 'Assignment removed successfully' 
-    });
+    res.status(200).json({ success: true, message: 'Assignment removed successfully' });
   } catch (error) {
     console.error('Remove assignment error:', error);
     res.status(500).json({ message: 'Failed to remove assignment' });
@@ -376,7 +361,6 @@ router.post('/remove-assignment', authenticateToken, async (req, res) => {
 });
 
 // ============ MEETING ROUTES ============
-// Create meeting - notify all assigned students
 router.post('/create-meeting', authenticateToken, async (req, res) => {
   const { title, description, scheduledTime } = req.body;
   if (!title) return res.status(400).json({ message: 'Meeting title is required' });
@@ -409,19 +393,13 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
               <h2 style="color: #1a73e8;">New Virtual Classroom Meeting</h2>
               <p><strong>Dear ${student.firstName} ${student.lastName},</strong></p>
               <p>Your teacher <strong>${teacher.firstName} ${teacher.lastName}</strong> has created a new meeting:</p>
-              
               <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
                 <h3 style="margin-top: 0; color: #333;">${title}</h3>
                 ${description ? `<p><strong>Description:</strong> ${description}</p>` : ''}
                 <p><strong>Meeting ID:</strong> ${meetingId}</p>
                 <p><strong>Scheduled:</strong> ${new Date(scheduledTime).toLocaleString()}</p>
               </div>
-              
-              <a href="${meetingLink}" 
-                 style="display: inline-block; background: #1a73e8; color: white; padding: 12px 30px; 
-                        text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">
-                ➤ Join Meeting
-              </a>
+              <a href="${meetingLink}" style="display: inline-block; background: #1a73e8; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">➤ Join Meeting</a>
             </div>
           `;
 
@@ -450,7 +428,6 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
   }
 });
 
-// Get teacher's meetings
 router.get('/meetings', authenticateToken, async (req, res) => {
   try {
     const meetings = await Meeting.find({ teacherId: req.user.id })
@@ -463,7 +440,6 @@ router.get('/meetings', authenticateToken, async (req, res) => {
   }
 });
 
-// Get meeting details
 router.get('/meeting/:meetingId', async (req, res) => {
   const { meetingId } = req.params;
   try {
@@ -481,15 +457,12 @@ router.get('/meeting/:meetingId', async (req, res) => {
   }
 });
 
-// End meeting
 router.post('/end-meeting/:meetingId', authenticateToken, async (req, res) => {
   try {
     const { meetingId } = req.params;
     const meeting = await Meeting.findOne({ meetingId });
     
-    if (!meeting) {
-      return res.status(404).json({ message: 'Meeting not found' });
-    }
+    if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
     
     if (meeting.teacherId.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Only the host can end this meeting' });
@@ -506,43 +479,60 @@ router.post('/end-meeting/:meetingId', authenticateToken, async (req, res) => {
 });
 
 // ============ FILE MANAGEMENT ROUTES ============
-// Upload multiple files with description to Cloudinary
 router.post('/upload-file', authenticateToken, upload.array('file', 20), async (req, res) => {
   try {
     console.log('📤 Upload request received');
     
     if (!req.files || req.files.length === 0) {
-      console.log('❌ No files in request');
       return res.status(400).json({ message: 'No files uploaded' });
     }
-
-    console.log(`📁 Received ${req.files.length} file(s):`, req.files.map(f => f.originalname));
 
     const description = req.body.description || '';
     const teacher = await Teacher.findById(req.user.id);
     
     if (!teacher) {
-      console.log('❌ Teacher not found:', req.user.id);
       return res.status(404).json({ message: 'Teacher not found' });
     }
 
-    if (!teacher.files) {
-      teacher.files = [];
-    }
+    if (!teacher.files) teacher.files = [];
 
     const uploadedFiles = [];
     
     for (const file of req.files) {
       console.log(`✅ File uploaded to Cloudinary: ${file.path}`);
       
+      // Determine file category
+      let category = 'other';
+      const mimetype = file.mimetype || '';
+      const filename = file.originalname.toLowerCase();
+      
+      if (mimetype.startsWith('image/') || filename.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff)$/)) {
+        category = 'image';
+      } else if (mimetype.startsWith('video/') || filename.match(/\.(mp4|webm|ogg|mov|avi|mkv|mpeg|3gp)$/)) {
+        category = 'video';
+      } else if (mimetype.startsWith('audio/') || filename.match(/\.(mp3|wav|m4a|aac|flac|ogg)$/)) {
+        category = 'audio';
+      } else if (mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
+        category = 'pdf';
+      } else if (mimetype.includes('document') || filename.match(/\.(doc|docx|txt|rtf|md)$/)) {
+        category = 'document';
+      } else if (mimetype.includes('spreadsheet') || filename.match(/\.(xls|xlsx|csv)$/)) {
+        category = 'spreadsheet';
+      } else if (mimetype.includes('presentation') || filename.match(/\.(ppt|pptx)$/)) {
+        category = 'presentation';
+      } else if (filename.match(/\.(zip|rar|7z|tar|gz)$/)) {
+        category = 'archive';
+      }
+      
       const fileData = {
         filename: file.originalname,
         savedAs: file.filename,
-        path: file.path, // This is the Cloudinary URL
+        path: file.path,
         uploadedAt: new Date(),
         description: description.trim(),
         fileType: file.mimetype,
         fileSize: file.size,
+        category: category,
         cloudinaryId: file.filename
       };
       
@@ -563,13 +553,10 @@ router.post('/upload-file', authenticateToken, upload.array('file', 20), async (
     });
   } catch (error) {
     console.error('❌ File upload error:', error);
-    res.status(500).json({ 
-      message: error.message || 'Failed to upload files'
-    });
+    res.status(500).json({ message: error.message || 'Failed to upload files' });
   }
 });
 
-// Get teacher's uploaded files
 router.get('/my-files', authenticateToken, async (req, res) => {
   try {
     console.log('📂 Fetching files for teacher:', req.user.id);
@@ -577,73 +564,50 @@ router.get('/my-files', authenticateToken, async (req, res) => {
     const teacher = await Teacher.findById(req.user.id).select('files');
     
     if (!teacher) {
-      console.log('❌ Teacher not found');
       return res.status(404).json({ message: 'Teacher not found' });
     }
     
     const files = teacher.files ? teacher.files.sort((a, b) => b.uploadedAt - a.uploadedAt) : [];
     
-    console.log(`✅ Found ${files.length} files`);
-    
-    res.status(200).json({ 
-      success: true, 
-      files: files,
-      count: files.length
-    });
+    res.status(200).json({ success: true, files: files, count: files.length });
   } catch (error) {
     console.error('❌ Fetch files error:', error);
     res.status(500).json({ message: 'Failed to fetch uploaded files' });
   }
 });
 
-// Get single file info
 router.get('/file/:fileId', authenticateToken, async (req, res) => {
   try {
     const { fileId } = req.params;
     const teacher = await Teacher.findById(req.user.id);
     
-    if (!teacher) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
+    if (!teacher) return res.status(404).json({ message: 'Teacher not found' });
     
     const file = teacher.files.id(fileId);
+    if (!file) return res.status(404).json({ message: 'File not found' });
     
-    if (!file) {
-      return res.status(404).json({ message: 'File not found' });
-    }
-    
-    res.status(200).json({
-      success: true,
-      file: file
-    });
+    res.status(200).json({ success: true, file: file });
   } catch (error) {
     console.error('❌ Fetch file error:', error);
     res.status(500).json({ message: 'Failed to fetch file' });
   }
 });
 
-// Delete a file from Cloudinary and database
 router.delete('/file/:fileId', authenticateToken, async (req, res) => {
   try {
     const { fileId } = req.params;
     const teacher = await Teacher.findById(req.user.id);
     
-    if (!teacher) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
+    if (!teacher) return res.status(404).json({ message: 'Teacher not found' });
     
     const fileIndex = teacher.files.findIndex(f => f._id.toString() === fileId);
-    
-    if (fileIndex === -1) {
-      return res.status(404).json({ message: 'File not found' });
-    }
+    if (fileIndex === -1) return res.status(404).json({ message: 'File not found' });
     
     const file = teacher.files[fileIndex];
     
-    // Delete from Cloudinary if it has cloudinaryId
     if (file.cloudinaryId) {
       try {
-        await cloudinary.uploader.destroy(file.cloudinaryId);
+        await cloudinary.uploader.destroy(file.cloudinaryId, { resource_type: 'raw' });
         console.log(`✅ File deleted from Cloudinary: ${file.cloudinaryId}`);
       } catch (cloudinaryError) {
         console.error('Error deleting from Cloudinary:', cloudinaryError);
@@ -653,45 +617,97 @@ router.delete('/file/:fileId', authenticateToken, async (req, res) => {
     teacher.files.splice(fileIndex, 1);
     await teacher.save();
     
-    res.status(200).json({ 
-      success: true, 
-      message: 'File deleted successfully' 
-    });
+    res.status(200).json({ success: true, message: 'File deleted successfully' });
   } catch (error) {
     console.error('Delete file error:', error);
     res.status(500).json({ message: 'Failed to delete file' });
   }
 });
 
-// Update file description
 router.patch('/file/:fileId', authenticateToken, async (req, res) => {
   try {
     const { fileId } = req.params;
     const { description } = req.body;
     
     const teacher = await Teacher.findById(req.user.id);
-    
-    if (!teacher) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
+    if (!teacher) return res.status(404).json({ message: 'Teacher not found' });
     
     const file = teacher.files.id(fileId);
-    
-    if (!file) {
-      return res.status(404).json({ message: 'File not found' });
-    }
+    if (!file) return res.status(404).json({ message: 'File not found' });
     
     file.description = description || '';
     await teacher.save();
     
-    res.status(200).json({ 
-      success: true, 
-      message: 'File description updated successfully',
-      file
-    });
+    res.status(200).json({ success: true, message: 'File description updated', file });
   } catch (error) {
     console.error('Update file error:', error);
     res.status(500).json({ message: 'Failed to update file description' });
+  }
+});
+
+// ============ FILENAME CLEANUP ROUTE ============
+router.post('/clean-filenames', authenticateToken, async (req, res) => {
+  try {
+    const teacher = await Teacher.findById(req.user.id);
+    if (!teacher) {
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    let cleanedCount = 0;
+    const cleanedFiles = [];
+
+    teacher.files.forEach(file => {
+      let originalFilename = file.filename;
+      let newFilename = originalFilename;
+
+      // Fix double .pdf.pdf issue
+      while (newFilename.includes('.pdf.pdf')) {
+        newFilename = newFilename.replace('.pdf.pdf', '.pdf');
+      }
+      while (newFilename.includes('.PDF.pdf')) {
+        newFilename = newFilename.replace('.PDF.pdf', '.pdf');
+      }
+      while (newFilename.includes('.pdf.PDF')) {
+        newFilename = newFilename.replace('.pdf.PDF', '.pdf');
+      }
+      while (newFilename.includes('.PDF.PDF')) {
+        newFilename = newFilename.replace('.PDF.PDF', '.pdf');
+      }
+      
+      // Fix other potential double extensions
+      const extensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.jpg', '.jpeg', '.png', '.gif', '.mp4', '.mp3', '.zip'];
+      extensions.forEach(ext => {
+        const doubleExt = ext + ext;
+        while (newFilename.includes(doubleExt)) {
+          newFilename = newFilename.replace(doubleExt, ext);
+        }
+      });
+
+      if (originalFilename !== newFilename) {
+        file.filename = newFilename;
+        cleanedCount++;
+        cleanedFiles.push({
+          id: file._id,
+          old: originalFilename,
+          new: newFilename
+        });
+      }
+    });
+
+    if (cleanedCount > 0) {
+      await teacher.save();
+      console.log(`✅ Cleaned ${cleanedCount} filenames for teacher ${req.user.id}`);
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned ${cleanedCount} filenames`,
+      cleanedFiles: cleanedFiles
+    });
+
+  } catch (error) {
+    console.error('Clean filenames error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -703,23 +719,72 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const totalStudents = teacher.students ? teacher.students.length : 0;
     const totalMeetings = await Meeting.countDocuments({ teacherId: req.user.id });
     const totalFiles = teacher.files ? teacher.files.length : 0;
-    const activeMeetings = await Meeting.countDocuments({ 
-      teacherId: req.user.id, 
-      isActive: true 
-    });
+    const activeMeetings = await Meeting.countDocuments({ teacherId: req.user.id, isActive: true });
     
     res.status(200).json({
       success: true,
-      stats: {
-        totalStudents,
-        totalMeetings,
-        totalFiles,
-        activeMeetings
-      }
+      stats: { totalStudents, totalMeetings, totalFiles, activeMeetings }
     });
   } catch (error) {
     console.error('Fetch stats error:', error);
     res.status(500).json({ message: 'Failed to fetch dashboard statistics' });
+  }
+});
+
+// ============ DEBUG ROUTE ============
+router.get('/debug-files', authenticateToken, async (req, res) => {
+  try {
+    const teacher = await Teacher.findById(req.user.id);
+    const files = teacher.files || [];
+    
+    const fileInfo = files.map(f => ({
+      filename: f.filename,
+      path: f.path,
+      category: f.category,
+      fileType: f.fileType,
+      fileSize: f.fileSize,
+      isCloudinary: f.path?.includes('cloudinary') || false,
+      isLocal: f.path?.startsWith('/uploads/') || false,
+      id: f._id
+    }));
+    
+    res.json({
+      totalFiles: files.length,
+      cloudinaryFiles: fileInfo.filter(f => f.isCloudinary).length,
+      localFiles: fileInfo.filter(f => f.isLocal).length,
+      files: fileInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ CHECK FILE EXISTENCE ============
+router.get('/check-file/:filename', authenticateToken, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(__dirname, '../uploads', filename);
+    
+    const exists = fs.existsSync(filePath);
+    
+    if (exists) {
+      const stats = fs.statSync(filePath);
+      res.json({
+        exists: true,
+        filename,
+        path: filePath,
+        size: stats.size,
+        isFile: stats.isFile()
+      });
+    } else {
+      res.json({
+        exists: false,
+        filename,
+        path: filePath
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
