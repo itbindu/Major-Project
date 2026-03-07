@@ -1,4 +1,4 @@
-// Updated file: backend/routes/teacherRoutes.js - Complete fixed version with Brevo
+// Updated file: backend/routes/teacherRoutes.js - Complete fixed version with Cloudinary
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -7,37 +7,42 @@ const Student = require('../Models/Student');
 const Meeting = require('../Models/Meeting');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { generateAndSendOtp } = require('../services/otpService');
 const authenticateToken = require('../middleware/auth');
-const { sendEmail } = require('../services/emailService'); // ✅ ADDED Brevo email service
+const { sendEmail } = require('../services/emailService'); // Brevo email service
 
 const router = express.Router();
 
 // ============ GET FRONTEND URL ============
 const getFrontendUrl = () => {
-  // Check if we're in production (Render) or development
   return process.env.NODE_ENV === 'production' 
     ? 'https://major-project-silk-pi.vercel.app' 
     : 'http://localhost:3000';
 };
 
-// ============ MULTER CONFIGURATION FOR FILE UPLOADS ============
-// Create uploads directory if it doesn't exist
-const uploadDir = 'uploads/';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// ============ CLOUDINARY CONFIGURATION ============
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Clean filename and add timestamp to prevent duplicates
-    const timestamp = Date.now();
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
-    cb(null, `${timestamp}-${sanitizedName}`);
+console.log('✅ Cloudinary configured');
+
+// ============ CLOUDINARY STORAGE CONFIGURATION ============
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'virtual-classroom',
+    resource_type: 'auto',
+    public_id: (req, file) => {
+      const timestamp = Date.now();
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+      return `${timestamp}-${sanitizedName}`;
+    }
   }
 });
 
@@ -66,8 +71,8 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer upload
-const upload = multer({
+// Configure multer with Cloudinary storage
+const upload = multer({ 
   storage: storage,
   limits: {
     fileSize: 200 * 1024 * 1024 // 200MB max file size
@@ -199,6 +204,31 @@ router.get('/registered-students', authenticateToken, async (req, res) => {
   }
 });
 
+// Fetch all teachers (for assignment modal)
+router.get('/all-teachers', authenticateToken, async (req, res) => {
+  try {
+    const teachers = await Teacher.find()
+      .select('firstName lastName email');
+    res.status(200).json({ success: true, teachers });
+  } catch (error) {
+    console.error('Fetch teachers error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch teachers' });
+  }
+});
+
+// Fetch all students (for teacher dashboard)
+router.get('/all-students', authenticateToken, async (req, res) => {
+  try {
+    const students = await Student.find()
+      .populate('teachers', 'firstName lastName email')
+      .select('firstName lastName email teachers');
+    res.status(200).json({ success: true, students });
+  } catch (error) {
+    console.error('Fetch all students error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch students' });
+  }
+});
+
 // Assign/Approve student - add current teacher to array if not already
 router.post('/approve-student', authenticateToken, async (req, res) => {
   const { studentId } = req.body;
@@ -208,32 +238,26 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ message: 'Student not found' });
     
-    // Ensure teachers array exists
     if (!student.teachers) {
       student.teachers = [];
     }
     
-    // Check if current teacher already assigned
     if (student.teachers.includes(req.user.id)) {
       return res.status(400).json({ message: 'You are already assigned to this student.' });
     }
     
-    // Add current teacher to array
     student.teachers.push(req.user.id);
     
-    // Set isApproved true if first assignment
     if (student.teachers.length === 1) {
       student.isApproved = true;
     }
     
-    // Add student to teacher's students array
     await Teacher.findByIdAndUpdate(req.user.id, { 
       $addToSet: { students: studentId } 
     });
     
     await student.save();
     
-    // Notify student via email using Brevo
     const teacher = await Teacher.findById(req.user.id);
     const frontendUrl = getFrontendUrl();
     
@@ -241,19 +265,14 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
       <h2>Dear ${student.firstName} ${student.lastName},</h2>
       <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
       <p>You can now access their meetings and learning materials.</p>
-      <p>Total teachers assigned to you: ${student.teachers.length}</p>
-      <p>Login to your dashboard to view new content: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
-      <p>Best regards,<br>Virtual Classroom Team</p>
+      <p>Login to your dashboard: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
     `;
     
-    // ✅ USING BREVO INSTEAD OF NODEMAILER
     await sendEmail(
       student.email,
       `You've been assigned to teacher ${teacher.firstName} ${teacher.lastName}!`,
       htmlContent
     );
-    
-    console.log(`✅ Assignment email sent to ${student.email} via Brevo`);
 
     res.status(200).json({ 
       success: true,
@@ -262,6 +281,97 @@ router.post('/approve-student', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Assign error:', error);
     res.status(500).json({ message: 'Failed to assign student' });
+  }
+});
+
+// Assign student to specific teacher
+router.post('/assign-student', authenticateToken, async (req, res) => {
+  const { studentId, teacherId } = req.body;
+  
+  if (!studentId || !teacherId) {
+    return res.status(400).json({ message: 'Student ID and Teacher ID are required' });
+  }
+  
+  try {
+    const student = await Student.findById(studentId);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+    
+    const teacher = await Teacher.findById(teacherId);
+    if (!teacher) return res.status(404).json({ message: 'Teacher not found' });
+    
+    if (!student.teachers) {
+      student.teachers = [];
+    }
+    
+    if (student.teachers.includes(teacherId)) {
+      return res.status(400).json({ message: 'Teacher already assigned to this student' });
+    }
+    
+    student.teachers.push(teacherId);
+    
+    if (student.teachers.length === 1) {
+      student.isApproved = true;
+    }
+    
+    await Teacher.findByIdAndUpdate(teacherId, { 
+      $addToSet: { students: studentId } 
+    });
+    
+    await student.save();
+    
+    const frontendUrl = getFrontendUrl();
+    
+    const htmlContent = `
+      <h2>Dear ${student.firstName} ${student.lastName},</h2>
+      <p>You have been assigned to teacher <strong>${teacher.firstName} ${teacher.lastName}</strong>.</p>
+      <p>You can now access their meetings and learning materials.</p>
+      <p>Login to your dashboard: <a href="${frontendUrl}/student/login">Student Dashboard</a></p>
+    `;
+    
+    await sendEmail(
+      student.email,
+      `New teacher assignment: ${teacher.firstName} ${teacher.lastName}`,
+      htmlContent
+    );
+
+    res.status(200).json({ 
+      success: true,
+      message: `Student assigned to ${teacher.firstName} ${teacher.lastName} successfully` 
+    });
+  } catch (error) {
+    console.error('Assign to teacher error:', error);
+    res.status(500).json({ message: 'Failed to assign student to teacher' });
+  }
+});
+
+// Remove student assignment
+router.post('/remove-assignment', authenticateToken, async (req, res) => {
+  const { studentId, teacherId } = req.body;
+  
+  if (!studentId || !teacherId) {
+    return res.status(400).json({ message: 'Student ID and Teacher ID are required' });
+  }
+  
+  try {
+    const student = await Student.findById(studentId);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+    
+    student.teachers = student.teachers.filter(id => id.toString() !== teacherId);
+    student.isApproved = student.teachers.length > 0;
+    
+    await Teacher.findByIdAndUpdate(teacherId, { 
+      $pull: { students: studentId } 
+    });
+    
+    await student.save();
+
+    res.status(200).json({ 
+      success: true,
+      message: 'Assignment removed successfully' 
+    });
+  } catch (error) {
+    console.error('Remove assignment error:', error);
+    res.status(500).json({ message: 'Failed to remove assignment' });
   }
 });
 
@@ -285,7 +395,6 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
 
     await newMeeting.save();
 
-    // Fetch students assigned to this teacher
     const assignedStudents = await Student.find({ teachers: req.user.id });
     const frontendUrl = getFrontendUrl();
     const meetingLink = `${frontendUrl}/meeting/${meetingId}`;
@@ -313,21 +422,15 @@ router.post('/create-meeting', authenticateToken, async (req, res) => {
                         text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">
                 ➤ Join Meeting
               </a>
-              
-              <p style="margin-top: 20px; color: #666;">
-                <small>Link will expire when meeting ends.</small>
-              </p>
             </div>
           `;
 
-          // ✅ USING BREVO INSTEAD OF NODEMAILER
           await sendEmail(
             student.email,
             `📅 New Meeting: ${title} from ${teacher.firstName} ${teacher.lastName}`,
             htmlContent
           );
           
-          console.log(`📧 Email sent to ${student.email} via Brevo`);
           notifiedCount++;
         } catch (emailError) {
           console.error(`Failed to send email to ${student.email}:`, emailError);
@@ -378,29 +481,6 @@ router.get('/meeting/:meetingId', async (req, res) => {
   }
 });
 
-// Get meeting history with logs
-router.get('/meeting-history/:meetingId', authenticateToken, async (req, res) => {
-  try {
-    const { meetingId } = req.params;
-    const meeting = await Meeting.findOne({ meetingId })
-      .populate('teacherId', 'firstName lastName')
-      .populate('logs.userId', 'firstName lastName email');
-      
-    if (!meeting || meeting.teacherId._id.toString() !== req.user.id) {
-      return res.status(404).json({ message: 'Meeting not found' });
-    }
-    
-    res.status(200).json({ 
-      success: true, 
-      meeting, 
-      logs: meeting.logs || [] 
-    });
-  } catch (error) {
-    console.error('Fetch history error:', error);
-    res.status(500).json({ message: 'Failed to fetch history' });
-  }
-});
-
 // End meeting
 router.post('/end-meeting/:meetingId', authenticateToken, async (req, res) => {
   try {
@@ -426,53 +506,44 @@ router.post('/end-meeting/:meetingId', authenticateToken, async (req, res) => {
 });
 
 // ============ FILE MANAGEMENT ROUTES ============
-// Upload multiple files with description
+// Upload multiple files with description to Cloudinary
 router.post('/upload-file', authenticateToken, upload.array('file', 20), async (req, res) => {
   try {
+    console.log('📤 Upload request received');
+    
     if (!req.files || req.files.length === 0) {
+      console.log('❌ No files in request');
       return res.status(400).json({ message: 'No files uploaded' });
     }
+
+    console.log(`📁 Received ${req.files.length} file(s):`, req.files.map(f => f.originalname));
 
     const description = req.body.description || '';
     const teacher = await Teacher.findById(req.user.id);
     
     if (!teacher) {
+      console.log('❌ Teacher not found:', req.user.id);
       return res.status(404).json({ message: 'Teacher not found' });
     }
 
-    // Initialize files array if it doesn't exist
     if (!teacher.files) {
       teacher.files = [];
     }
 
-    // Process each uploaded file
     const uploadedFiles = [];
     
     for (const file of req.files) {
-      const filePath = `/uploads/${file.filename}`;
-      
-      // Get file extension
-      const fileExt = file.originalname.split('.').pop().toLowerCase();
-      
-      // Determine file category
-      let category = 'other';
-      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExt)) category = 'image';
-      else if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(fileExt)) category = 'video';
-      else if (['pdf'].includes(fileExt)) category = 'pdf';
-      else if (['doc', 'docx'].includes(fileExt)) category = 'document';
-      else if (['xls', 'xlsx', 'csv'].includes(fileExt)) category = 'spreadsheet';
-      else if (['ppt', 'pptx'].includes(fileExt)) category = 'presentation';
-      else if (['zip', 'rar', '7z'].includes(fileExt)) category = 'archive';
-      else if (['mp3', 'wav', 'ogg', 'm4a'].includes(fileExt)) category = 'audio';
+      console.log(`✅ File uploaded to Cloudinary: ${file.path}`);
       
       const fileData = {
         filename: file.originalname,
-        path: filePath,
+        savedAs: file.filename,
+        path: file.path, // This is the Cloudinary URL
         uploadedAt: new Date(),
         description: description.trim(),
         fileType: file.mimetype,
         fileSize: file.size,
-        category: category
+        cloudinaryId: file.filename
       };
       
       teacher.files.push(fileData);
@@ -483,6 +554,7 @@ router.post('/upload-file', authenticateToken, upload.array('file', 20), async (
     }
 
     await teacher.save();
+    console.log(`✅ Teacher record updated with ${uploadedFiles.length} file(s)`);
 
     res.status(200).json({
       success: true,
@@ -490,7 +562,7 @@ router.post('/upload-file', authenticateToken, upload.array('file', 20), async (
       files: uploadedFiles
     });
   } catch (error) {
-    console.error('File upload error:', error);
+    console.error('❌ File upload error:', error);
     res.status(500).json({ 
       message: error.message || 'Failed to upload files'
     });
@@ -500,26 +572,57 @@ router.post('/upload-file', authenticateToken, upload.array('file', 20), async (
 // Get teacher's uploaded files
 router.get('/my-files', authenticateToken, async (req, res) => {
   try {
+    console.log('📂 Fetching files for teacher:', req.user.id);
+    
     const teacher = await Teacher.findById(req.user.id).select('files');
+    
+    if (!teacher) {
+      console.log('❌ Teacher not found');
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+    
+    const files = teacher.files ? teacher.files.sort((a, b) => b.uploadedAt - a.uploadedAt) : [];
+    
+    console.log(`✅ Found ${files.length} files`);
+    
+    res.status(200).json({ 
+      success: true, 
+      files: files,
+      count: files.length
+    });
+  } catch (error) {
+    console.error('❌ Fetch files error:', error);
+    res.status(500).json({ message: 'Failed to fetch uploaded files' });
+  }
+});
+
+// Get single file info
+router.get('/file/:fileId', authenticateToken, async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const teacher = await Teacher.findById(req.user.id);
     
     if (!teacher) {
       return res.status(404).json({ message: 'Teacher not found' });
     }
     
-    // Sort files by upload date (newest first)
-    const files = teacher.files ? teacher.files.sort((a, b) => b.uploadedAt - a.uploadedAt) : [];
+    const file = teacher.files.id(fileId);
     
-    res.status(200).json({ 
-      success: true, 
-      files: files 
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    
+    res.status(200).json({
+      success: true,
+      file: file
     });
   } catch (error) {
-    console.error('Fetch files error:', error);
-    res.status(500).json({ message: 'Failed to fetch uploaded files' });
+    console.error('❌ Fetch file error:', error);
+    res.status(500).json({ message: 'Failed to fetch file' });
   }
 });
 
-// Delete a file
+// Delete a file from Cloudinary and database
 router.delete('/file/:fileId', authenticateToken, async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -529,28 +632,26 @@ router.delete('/file/:fileId', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Teacher not found' });
     }
     
-    // Find and remove the file
     const fileIndex = teacher.files.findIndex(f => f._id.toString() === fileId);
     
     if (fileIndex === -1) {
       return res.status(404).json({ message: 'File not found' });
     }
     
-    // Get file path to delete from filesystem
-    const filePath = teacher.files[fileIndex].path.replace('/uploads/', 'uploads/');
+    const file = teacher.files[fileIndex];
     
-    // Remove from database
+    // Delete from Cloudinary if it has cloudinaryId
+    if (file.cloudinaryId) {
+      try {
+        await cloudinary.uploader.destroy(file.cloudinaryId);
+        console.log(`✅ File deleted from Cloudinary: ${file.cloudinaryId}`);
+      } catch (cloudinaryError) {
+        console.error('Error deleting from Cloudinary:', cloudinaryError);
+      }
+    }
+    
     teacher.files.splice(fileIndex, 1);
     await teacher.save();
-    
-    // Try to delete from filesystem
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    } catch (fsError) {
-      console.error('Error deleting file from filesystem:', fsError);
-    }
     
     res.status(200).json({ 
       success: true, 
@@ -595,7 +696,6 @@ router.patch('/file/:fileId', authenticateToken, async (req, res) => {
 });
 
 // ============ DASHBOARD STATS ============
-// Get teacher dashboard statistics
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const teacher = await Teacher.findById(req.user.id);

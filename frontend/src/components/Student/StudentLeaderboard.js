@@ -58,6 +58,16 @@ const StudentLeaderboard = () => {
 
   return (
     <div className="student-leaderboard-container">
+
+      {/* BACK ARROW (TOP) */}
+      <div
+        className="back-arrow"
+        onClick={() => navigate('/student/dashboard')}
+      >
+        ← Back
+      </div>
+
+      {/* HEADER */}
       <div className="leaderboard-header">
         <h2>📊 My Performance</h2>
         <p>Track your quiz scores and progress</p>
@@ -65,32 +75,38 @@ const StudentLeaderboard = () => {
 
       {error && <div className="error-message">{error}</div>}
 
+      {/* EMPTY STATE */}
       {leaderboard.length === 0 ? (
         <div className="no-results">
           <div className="empty-icon">📝</div>
           <h3>No Quiz Results Yet</h3>
           <p>You haven't taken any quizzes yet.</p>
+
           <Link to="/student/quizzes" className="take-quiz-btn">
             Browse Available Quizzes
           </Link>
         </div>
       ) : (
         <>
+          {/* STATS */}
           <div className="stats-summary">
             <div className="stat-card">
               <span className="stat-value">{stats.totalQuizzes}</span>
               <span className="stat-label">Quizzes Taken</span>
             </div>
+
             <div className="stat-card">
               <span className="stat-value">{stats.averageScore}%</span>
               <span className="stat-label">Average Score</span>
             </div>
+
             <div className="stat-card">
               <span className="stat-value">{stats.passedQuizzes}</span>
               <span className="stat-label">Passed (≥70%)</span>
             </div>
           </div>
 
+          {/* TABLE */}
           <div className="leaderboard-table-container">
             <table className="leaderboard-table">
               <thead>
@@ -105,25 +121,45 @@ const StudentLeaderboard = () => {
               </thead>
               <tbody>
                 {leaderboard.map((entry, index) => (
-                  <tr key={index} className={entry.percentage >= 70 ? 'passed-row' : 'failed-row'}>
+                  <tr
+                    key={index}
+                    className={entry.percentage >= 70 ? 'passed-row' : 'failed-row'}
+                  >
                     <td className="rank-cell">
                       {index === 0 && '🥇'}
                       {index === 1 && '🥈'}
                       {index === 2 && '🥉'}
                       {index > 2 && `#${index + 1}`}
                     </td>
-                    <td className="quiz-title">{entry.quizTitle || 'Unknown Quiz'}</td>
+
+                    <td className="quiz-title">
+                      {entry.quizTitle || 'Unknown Quiz'}
+                    </td>
+
                     <td>
                       <strong>{entry.score}</strong> / {entry.total}
                     </td>
+
                     <td>
-                      <span className={`percentage-badge ${entry.percentage >= 70 ? 'success' : 'warning'}`}>
+                      <span
+                        className={`percentage-badge ${
+                          entry.percentage >= 70 ? 'success' : 'warning'
+                        }`}
+                      >
                         {entry.percentage}%
                       </span>
                     </td>
-                    <td>{new Date(entry.submittedAt).toLocaleDateString()}</td>
+
                     <td>
-                      <span className={`status-badge ${entry.percentage >= 70 ? 'passed' : 'failed'}`}>
+                      {new Date(entry.submittedAt).toLocaleDateString()}
+                    </td>
+
+                    <td>
+                      <span
+                        className={`status-badge ${
+                          entry.percentage >= 70 ? 'passed' : 'failed'
+                        }`}
+                      >
                         {entry.percentage >= 70 ? '✓ Passed' : '✗ Failed'}
                       </span>
                     </td>
@@ -135,10 +171,8 @@ const StudentLeaderboard = () => {
         </>
       )}
 
+      {/* BOTTOM ACTION */}
       <div className="action-buttons">
-        <button onClick={() => navigate('/student/dashboard')} className="back-btn">
-          ← Back to Dashboard
-        </button>
         <Link to="/student/quizzes" className="view-quizzes-btn">
           Take More Quizzes
         </Link>

@@ -51,7 +51,6 @@ const MeetingRoom = ({ role = 'student' }) => {
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
-  const screenVideoRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnections = useRef({});
   const screenPeerConnections = useRef({});
@@ -63,277 +62,20 @@ const MeetingRoom = ({ role = 'student' }) => {
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun4.l.google.com:19302' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ],
+    iceCandidatePoolSize: 10
   };
-
-  // Add CSS styles for screen share
-  useEffect(() => {
-    const screenShareStyles = `
-      .meeting-room {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-        background: #0a0a0a;
-        color: white;
-      }
-
-      .meeting-main {
-        flex: 1;
-        display: flex;
-        overflow: hidden;
-        position: relative;
-      }
-
-      .video-container {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        padding: 20px;
-        transition: all 0.3s ease;
-        overflow-y: auto;
-      }
-
-      .video-container.with-sidebar {
-        width: calc(100% - 300px);
-      }
-
-      /* Screen share container */
-      .screen-share-container {
-        width: 100%;
-        margin-bottom: 20px;
-        background: #1a1a1a;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 2px solid #3b82f6;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
-      }
-
-      .screen-share-header {
-        padding: 12px 16px;
-        background: #2d2d2d;
-        color: white;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
-        border-bottom: 1px solid #404040;
-      }
-
-      .screen-share-video-wrapper {
-        position: relative;
-        width: 100%;
-        background: #000;
-        min-height: 200px;
-        max-height: 50vh;
-      }
-
-      .screen-share-video {
-        width: 100%;
-        height: 100%;
-        max-height: 50vh;
-        object-fit: contain;
-        background: #000;
-        display: block;
-      }
-
-      /* Video grid - always visible */
-      .video-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 15px;
-        width: 100%;
-        min-height: 200px;
-      }
-
-      .video-grid.screen-share-active {
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      }
-
-      /* Video tiles */
-      .video-tile {
-        position: relative;
-        aspect-ratio: 16/9;
-        background: #1a1a1a;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid #333;
-        transition: all 0.2s;
-      }
-
-      .video-tile:hover {
-        border-color: #3b82f6;
-      }
-
-      .video-element {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      .video-placeholder {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%);
-      }
-
-      .video-placeholder.hidden {
-        display: none;
-      }
-
-      .avatar {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        background: #3b82f6;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 32px;
-        font-weight: bold;
-        color: white;
-      }
-
-      .video-label {
-        position: absolute;
-        bottom: 8px;
-        left: 8px;
-        right: 8px;
-        padding: 4px 8px;
-        background: rgba(0, 0, 0, 0.6);
-        border-radius: 6px;
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        backdrop-filter: blur(4px);
-      }
-
-      .name {
-        flex: 1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .host-badge {
-        background: #fbbf24;
-        color: #000;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: bold;
-      }
-
-      .screen-share-badge {
-        background: #3b82f6;
-        color: white;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        display: inline-flex;
-        align-items: center;
-        gap: 2px;
-      }
-
-      .mute-overlay {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        background: rgba(239, 68, 68, 0.9);
-        border: none;
-        color: white;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      .mute-overlay:hover {
-        background: #dc2626;
-      }
-
-      /* Screen share banner */
-      .screen-share-banner {
-        position: fixed;
-        top: 60px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        padding: 8px 16px;
-        border-radius: 20px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        z-index: 100;
-        font-size: 14px;
-        backdrop-filter: blur(4px);
-        border: 1px solid #3b82f6;
-      }
-
-      .stop-screen-share-btn {
-        margin-left: auto;
-        background: #dc2626;
-        color: white;
-        border: none;
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 13px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        transition: background 0.2s;
-      }
-
-      .stop-screen-share-btn:hover {
-        background: #b91c1c;
-      }
-
-      /* Hide browser's native screen sharing indicator */
-      #screen-share-indicator {
-        display: none !important;
-      }
-
-      /* Responsive */
-      @media (max-width: 768px) {
-        .video-grid {
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        }
-
-        .avatar {
-          width: 50px;
-          height: 50px;
-          font-size: 24px;
-        }
-
-        .screen-share-banner {
-          top: 70px;
-          font-size: 12px;
-          padding: 6px 12px;
-        }
-      }
-    `;
-
-    const styleSheet = document.createElement("style");
-    styleSheet.textContent = screenShareStyles;
-    document.head.appendChild(styleSheet);
-
-    return () => {
-      styleSheet.remove();
-    };
-  }, []);
 
   // ============ INITIALIZE ============
   useEffect(() => {
@@ -357,10 +99,13 @@ const MeetingRoom = ({ role = 'student' }) => {
     const socket = io(BACKEND_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000,
-      withCredentials: true
+      withCredentials: true,
+      secure: true,
+      rejectUnauthorized: false,
+      path: '/socket.io/'
     });
     
     socketRef.current = socket;
@@ -380,6 +125,16 @@ const MeetingRoom = ({ role = 'student' }) => {
     socket.on('connect_error', (error) => {
       console.error('❌ Connection error:', error);
       setConnectionStatus('error');
+      
+      if (error.message.includes('websocket')) {
+        console.log('⚠️ WebSocket failed, trying polling...');
+        socket.io.opts.transports = ['polling'];
+      }
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('❌ Disconnected:', reason);
+      setConnectionStatus('connecting');
     });
 
     socket.on('all-users', (users) => {
@@ -387,6 +142,7 @@ const MeetingRoom = ({ role = 'student' }) => {
       setParticipants(users);
       setParticipantCount(users.length + 1);
       
+      // Create peer connections for all existing users
       setTimeout(() => {
         users.forEach(user => {
           if (user.userId !== newUserId && !peerConnections.current[user.userId]) {
@@ -403,12 +159,14 @@ const MeetingRoom = ({ role = 'student' }) => {
       setParticipants(prev => [...prev, user]);
       setParticipantCount(prev => prev + 1);
       
+      // Create peer connection for new user
       if (!peerConnections.current[user.userId]) {
         createPeerConnection(user.userId);
       }
 
       // If we are currently screen sharing, send screen share to new participant
       if (isScreenSharing && screenStreamRef.current) {
+        console.log('New user joined while screen sharing, sending screen stream to:', user.userId);
         setTimeout(() => {
           createScreenPeerConnection(user.userId, screenStreamRef.current);
         }, 1000);
@@ -421,12 +179,11 @@ const MeetingRoom = ({ role = 'student' }) => {
     
     // Screen sharing socket events
     socket.on('screen-share-started', ({ userId: sharerId, userName: sharerName }) => {
-      console.log('📺 Screen sharing started by:', sharerName);
-      setScreenShareParticipant({ userId: sharerId, userName: sharerName });
-      setHasScreenShare(true);
+      console.log('📺 Screen sharing started by:', sharerName || 'Someone');
       
-      // Create screen share container for viewers with the correct name
-      ensureScreenShareContainer(sharerName);
+      // Update state
+      setScreenShareParticipant({ userId: sharerId, userName: sharerName || 'Someone' });
+      setHasScreenShare(true);
       
       // Add screen share class to video grid
       const videoGrid = document.querySelector('.video-grid');
@@ -434,8 +191,11 @@ const MeetingRoom = ({ role = 'student' }) => {
         videoGrid.classList.add('screen-share-active');
       }
       
+      // Create container immediately
+      ensureScreenShareContainer(sharerName || 'Someone');
+      
       // If we are not the sharer, create a peer connection to receive the screen
-      if (sharerId !== newUserId) {
+      if (sharerId !== userId) {
         console.log('Creating screen peer connection for sharer:', sharerId);
         createScreenPeerConnection(sharerId);
       }
@@ -443,12 +203,13 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     socket.on('screen-share-stopped', ({ userId: sharerId }) => {
       console.log('📺 Screen sharing stopped by:', sharerId);
+      
       if (screenShareParticipant?.userId === sharerId) {
         setScreenShareParticipant(null);
         setHasScreenShare(false);
         
         // Remove screen share container
-        const screenContainer = document.querySelector('.screen-share-container');
+        const screenContainer = document.getElementById('screen-share-container');
         if (screenContainer) {
           screenContainer.remove();
         }
@@ -487,12 +248,11 @@ const MeetingRoom = ({ role = 'student' }) => {
       if (screenShareParticipant?.userId === leftUserId) {
         setScreenShareParticipant(null);
         setHasScreenShare(false);
-        const screenContainer = document.querySelector('.screen-share-container');
+        const screenContainer = document.getElementById('screen-share-container');
         if (screenContainer) {
           screenContainer.remove();
         }
         
-        // Remove screen share class from video grid
         const videoGrid = document.querySelector('.video-grid');
         if (videoGrid) {
           videoGrid.classList.remove('screen-share-active');
@@ -525,8 +285,12 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     return () => {
       // Clean up all peer connections
-      Object.values(peerConnections.current).forEach(pc => pc.close());
-      Object.values(screenPeerConnections.current).forEach(pc => pc.close());
+      Object.values(peerConnections.current).forEach(pc => {
+        try { pc.close(); } catch (e) {}
+      });
+      Object.values(screenPeerConnections.current).forEach(pc => {
+        try { pc.close(); } catch (e) {}
+      });
       
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -580,7 +344,6 @@ const MeetingRoom = ({ role = 'student' }) => {
         
         const tile = document.getElementById(`tile-${targetUserId}`);
         if (tile) {
-          // Clear placeholder and add video
           const placeholder = tile.querySelector('.video-placeholder');
           if (placeholder) {
             placeholder.classList.add('hidden');
@@ -590,6 +353,10 @@ const MeetingRoom = ({ role = 'student' }) => {
       }
       
       videoElement.srcObject = remoteStream;
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE connection state for', targetUserId, ':', pc.iceConnectionState);
     };
 
     pc.createOffer()
@@ -702,84 +469,60 @@ const MeetingRoom = ({ role = 'student' }) => {
 
   // ============ SCREEN SHARING FUNCTIONS ============
   const ensureScreenShareContainer = (sharerName) => {
-    // Remove existing container if any
-    const existingContainer = document.querySelector('.screen-share-container');
-    if (existingContainer) {
-      existingContainer.remove();
-    }
+    let screenContainer = document.getElementById('screen-share-container');
     
-    // Create new container
-    const screenContainer = document.createElement('div');
-    screenContainer.className = 'screen-share-container';
-    
-    const header = document.createElement('div');
-    header.className = 'screen-share-header';
-    
-    // Create monitor icon
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    icon.setAttribute('width', '20');
-    icon.setAttribute('height', '20');
-    icon.setAttribute('viewBox', '0 0 24 24');
-    icon.setAttribute('fill', 'none');
-    icon.setAttribute('stroke', 'currentColor');
-    icon.setAttribute('stroke-width', '2');
-    
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', '2');
-    rect.setAttribute('y', '3');
-    rect.setAttribute('width', '20');
-    rect.setAttribute('height', '14');
-    rect.setAttribute('rx', '2');
-    rect.setAttribute('ry', '2');
-    
-    const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line1.setAttribute('x1', '8');
-    line1.setAttribute('y1', '21');
-    line1.setAttribute('x2', '16');
-    line1.setAttribute('y2', '21');
-    
-    const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line2.setAttribute('x1', '12');
-    line2.setAttribute('y1', '17');
-    line2.setAttribute('x2', '12');
-    line2.setAttribute('y2', '21');
-    
-    icon.appendChild(rect);
-    icon.appendChild(line1);
-    icon.appendChild(line2);
-    
-    const span = document.createElement('span');
-    span.textContent = `${sharerName || 'Someone'} is sharing their screen`;
-    span.style.fontWeight = '500';
-    
-    header.appendChild(icon);
-    header.appendChild(span);
-    
-    // Add stop button only for the sharer
-    if (sharerName === userName) {
-      const stopBtn = document.createElement('button');
-      stopBtn.className = 'stop-screen-share-btn';
-      stopBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><rect x="8" y="8" width="8" height="8"/></svg> Stop Sharing';
-      stopBtn.onclick = stopScreenSharing;
-      header.appendChild(stopBtn);
-    }
-    
-    const videoWrapper = document.createElement('div');
-    videoWrapper.className = 'screen-share-video-wrapper';
-    
-    const screenVideo = document.createElement('video');
-    screenVideo.id = 'screen-share-video';
-    screenVideo.className = 'screen-share-video';
-    screenVideo.autoplay = true;
-    screenVideo.playsInline = true;
-    
-    videoWrapper.appendChild(screenVideo);
-    screenContainer.appendChild(header);
-    screenContainer.appendChild(videoWrapper);
-    
-    const videoContainer = document.querySelector('.video-container');
-    if (videoContainer) {
-      videoContainer.insertBefore(screenContainer, videoContainer.firstChild);
+    if (!screenContainer) {
+      console.log('Creating screen share container for:', sharerName);
+      screenContainer = document.createElement('div');
+      screenContainer.id = 'screen-share-container';
+      screenContainer.className = 'screen-share-container';
+      
+      const header = document.createElement('div');
+      header.className = 'screen-share-header';
+      
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('width', '20');
+      icon.setAttribute('height', '20');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'currentColor');
+      icon.setAttribute('stroke-width', '2');
+      icon.innerHTML = '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>';
+      
+      const span = document.createElement('span');
+      span.id = 'screen-share-header-text';
+      span.textContent = `${sharerName || 'Someone'} is sharing their screen`;
+      span.style.fontWeight = '500';
+      
+      header.appendChild(icon);
+      header.appendChild(span);
+      
+      const videoWrapper = document.createElement('div');
+      videoWrapper.className = 'screen-share-video-wrapper';
+      
+      const screenVideo = document.createElement('video');
+      screenVideo.id = 'screen-share-video';
+      screenVideo.className = 'screen-share-video';
+      screenVideo.autoplay = true;
+      screenVideo.playsInline = true;
+      screenVideo.controls = false;
+      
+      videoWrapper.appendChild(screenVideo);
+      screenContainer.appendChild(header);
+      screenContainer.appendChild(videoWrapper);
+      
+      const videoContainer = document.querySelector('.video-container');
+      if (videoContainer) {
+        videoContainer.insertBefore(screenContainer, videoContainer.firstChild);
+        console.log('Screen share container added to DOM');
+      } else {
+        console.error('Video container not found!');
+      }
+    } else {
+      const headerText = document.getElementById('screen-share-header-text');
+      if (headerText) {
+        headerText.textContent = `${sharerName || 'Someone'} is sharing their screen`;
+      }
     }
     
     return screenContainer;
@@ -816,6 +559,7 @@ const MeetingRoom = ({ role = 'student' }) => {
       screenStreamRef.current = screenStream;
       
       screenStream.getVideoTracks()[0].onended = () => {
+        console.log('Screen sharing stopped by browser');
         stopScreenSharing();
       };
 
@@ -823,7 +567,7 @@ const MeetingRoom = ({ role = 'student' }) => {
       setScreenShareParticipant({ userId, userName });
       setHasScreenShare(true);
       
-      // Create local preview with correct name
+      // Create local preview
       ensureScreenShareContainer(userName);
       const previewVideo = document.getElementById('screen-share-video');
       if (previewVideo) {
@@ -831,6 +575,7 @@ const MeetingRoom = ({ role = 'student' }) => {
         previewVideo.play().catch(e => console.log('Error playing preview:', e));
       }
 
+      // Emit screen share started event to all participants
       socketRef.current.emit('screen-share-started', {
         meetingId,
         userId,
@@ -843,14 +588,34 @@ const MeetingRoom = ({ role = 'student' }) => {
         videoGrid.classList.add('screen-share-active');
       }
 
-      // Create screen share connections for all participants
+      // Wait a moment for the stream to be ready
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Create screen share connections for all existing participants
       console.log('Creating screen connections for participants:', participants);
-      participants.forEach(participant => {
-        if (participant.userId !== userId) {
-          console.log('Creating screen connection for:', participant.userId);
-          createScreenPeerConnection(participant.userId, screenStream);
+      
+      if (participants.length === 0) {
+        console.log('No participants yet, waiting for participants list...');
+        
+        // Try again after 2 seconds
+        setTimeout(() => {
+          console.log('Retrying with participants:', participants);
+          for (const participant of participants) {
+            if (participant.userId !== userId) {
+              console.log('Creating screen connection for:', participant.userId);
+              createScreenPeerConnection(participant.userId, screenStream);
+            }
+          }
+        }, 2000);
+      } else {
+        // Create connections for existing participants
+        for (const participant of participants) {
+          if (participant.userId !== userId) {
+            console.log('Creating screen connection for:', participant.userId);
+            createScreenPeerConnection(participant.userId, screenStream);
+          }
         }
-      });
+      }
 
     } catch (error) {
       console.error('Screen sharing error:', error);
@@ -859,6 +624,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const stopScreenSharing = () => {
+    console.log('Stopping screen share');
+    
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(track => {
         track.stop();
@@ -870,13 +637,11 @@ const MeetingRoom = ({ role = 'student' }) => {
     setScreenShareParticipant(null);
     setHasScreenShare(false);
 
-    // Remove screen share container
-    const screenContainer = document.querySelector('.screen-share-container');
+    const screenContainer = document.getElementById('screen-share-container');
     if (screenContainer) {
       screenContainer.remove();
     }
 
-    // Remove screen share class from video grid
     const videoGrid = document.querySelector('.video-grid');
     if (videoGrid) {
       videoGrid.classList.remove('screen-share-active');
@@ -887,26 +652,33 @@ const MeetingRoom = ({ role = 'student' }) => {
       userId
     });
 
-    // Close all screen peer connections
-    Object.values(screenPeerConnections.current).forEach(pc => pc.close());
+    Object.values(screenPeerConnections.current).forEach(pc => {
+      try {
+        pc.close();
+      } catch (e) {
+        console.error('Error closing peer connection:', e);
+      }
+    });
     screenPeerConnections.current = {};
   };
 
-  const createScreenPeerConnection = (targetUserId, stream = screenStreamRef.current) => {
-    if (!stream) {
-      console.log('No screen stream available for:', targetUserId);
-      return;
-    }
-
+  const createScreenPeerConnection = (targetUserId, stream) => {
+    const screenStream = stream || screenStreamRef.current;
+    
     console.log('Creating screen share connection for:', targetUserId);
     
     const pc = new RTCPeerConnection(configuration);
     screenPeerConnections.current[targetUserId] = pc;
 
-    stream.getTracks().forEach(track => {
-      console.log('Adding screen track to peer connection:', track.kind, 'for user:', targetUserId);
-      pc.addTrack(track, stream);
-    });
+    // Add tracks if stream is available
+    if (screenStream) {
+      screenStream.getTracks().forEach(track => {
+        console.log('Adding screen track to peer connection:', track.kind, 'for user:', targetUserId);
+        pc.addTrack(track, screenStream);
+      });
+    } else {
+      console.log('No screen stream available yet for:', targetUserId, '- will add tracks later');
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -921,10 +693,6 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     pc.oniceconnectionstatechange = () => {
       console.log('Screen PC ICE connection state for', targetUserId, ':', pc.iceConnectionState);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('Screen PC connection state for', targetUserId, ':', pc.connectionState);
     };
 
     pc.createOffer()
@@ -943,65 +711,104 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleReceiveScreenOffer = async ({ fromUserId, offer }) => {
-    console.log('Received screen offer from:', fromUserId);
+  console.log('Received screen offer from:', fromUserId);
+  
+  if (!screenPeerConnections.current[fromUserId]) {
+    console.log('Creating screen peer connection for receiver:', fromUserId);
+    const pc = new RTCPeerConnection(configuration);
+    screenPeerConnections.current[fromUserId] = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log('Sending screen ICE candidate back to:', fromUserId);
+        socketRef.current.emit('send-screen-ice-candidate', {
+          meetingId,
+          targetUserId: fromUserId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    // IMPORTANT FIX: Handle incoming screen track
+    pc.ontrack = (event) => {
+      console.log('📺 Received screen track from:', fromUserId);
+      console.log('Track kind:', event.track.kind);
+      console.log('Streams:', event.streams);
+      
+      const [remoteStream] = event.streams;
+      
+      if (!remoteStream) {
+        console.error('No remote stream received!');
+        return;
+      }
+
+      // Get the screen video element
+      let screenVideo = document.getElementById('screen-share-video');
+      
+      if (!screenVideo) {
+        console.log('Creating screen share container for:', fromUserId);
+        const sharer = participants.find(p => p.userId === fromUserId);
+        const sharerName = sharer?.userName || 'Someone';
+        
+        ensureScreenShareContainer(sharerName);
+        screenVideo = document.getElementById('screen-share-video');
+      }
+      
+      if (screenVideo) {
+        console.log('Setting screen video source with stream');
+        screenVideo.srcObject = remoteStream;
+        
+        // Force play
+        screenVideo.play()
+          .then(() => console.log('Screen video playing'))
+          .catch(e => console.error('Error playing screen video:', e));
+        
+        // Make sure video is visible
+        screenVideo.style.display = 'block';
+        
+        // Update state
+        setHasScreenShare(true);
+      } else {
+        console.error('Screen video element not found after creation!');
+      }
+    };
     
-    if (!screenPeerConnections.current[fromUserId]) {
-      console.log('Creating screen peer connection for receiver:', fromUserId);
-      const pc = new RTCPeerConnection(configuration);
-      screenPeerConnections.current[fromUserId] = pc;
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          console.log('Sending screen ICE candidate back to:', fromUserId);
-          socketRef.current.emit('send-screen-ice-candidate', {
-            meetingId,
-            targetUserId: fromUserId,
-            candidate: event.candidate
-          });
+    pc.oniceconnectionstatechange = () => {
+      console.log('Screen receiver ICE state for', fromUserId, ':', pc.iceConnectionState);
+      
+      // If connection is complete, make sure video is playing
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        console.log('Screen connection established with:', fromUserId);
+        const screenVideo = document.getElementById('screen-share-video');
+        if (screenVideo && screenVideo.srcObject) {
+          screenVideo.play().catch(e => console.log('Error playing video after connection:', e));
         }
-      };
+      }
+    };
+  }
 
-      pc.ontrack = (event) => {
-        console.log('📺 Received screen track from:', fromUserId);
-        const [remoteStream] = event.streams;
-        
-        let screenVideo = document.getElementById('screen-share-video');
-        
-        if (!screenVideo) {
-          // Get the sharer's name from participants list
-          const sharer = participants.find(p => p.userId === fromUserId);
-          const sharerName = sharer?.userName || 'Someone';
-          
-          // Create container if it doesn't exist with correct name
-          ensureScreenShareContainer(sharerName);
-          screenVideo = document.getElementById('screen-share-video');
-        }
-        
-        if (screenVideo) {
-          screenVideo.srcObject = remoteStream;
-          screenVideo.play().catch(e => console.log('Error playing screen video:', e));
-        }
-      };
-    }
+  const pc = screenPeerConnections.current[fromUserId];
 
-    const pc = screenPeerConnections.current[fromUserId];
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    console.log('Remote description set for screen from:', fromUserId);
+    
+    const answer = await pc.createAnswer();
+    console.log('Created screen answer for:', fromUserId);
+    
+    await pc.setLocalDescription(answer);
+    console.log('Local description set for screen answer');
 
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      console.log('Sending screen answer to:', fromUserId);
-      socketRef.current.emit('send-screen-answer', {
-        meetingId,
-        targetUserId: fromUserId,
-        answer: pc.localDescription
-      });
-    } catch (error) {
-      console.error('Error handling screen offer:', error);
-    }
-  };
-
+    console.log('Sending screen answer to:', fromUserId);
+    socketRef.current.emit('send-screen-answer', {
+      meetingId,
+      targetUserId: fromUserId,
+      answer: pc.localDescription
+    });
+  } catch (error) {
+    console.error('Error handling screen offer:', error);
+  }
+};
   const handleReceiveScreenAnswer = async ({ fromUserId, answer }) => {
     console.log('Received screen answer from:', fromUserId);
     
@@ -1201,7 +1008,7 @@ const MeetingRoom = ({ role = 'student' }) => {
         </div>
       )}
 
-      {/* Screen Share Banner - Only for viewers, not for sharer */}
+      {/* Screen Share Banner - Only for viewers */}
       {hasScreenShare && screenShareParticipant && screenShareParticipant.userId !== userId && !isScreenSharing && (
         <div className="screen-share-banner">
           <Monitor size={16} />
@@ -1239,9 +1046,9 @@ const MeetingRoom = ({ role = 'student' }) => {
       {/* Main Content */}
       <main className="meeting-main">
         <div className={`video-container ${showParticipants || showChat ? 'with-sidebar' : ''}`}>
-          {/* Screen share container will be inserted here dynamically when someone shares */}
+          {/* Screen share container will be inserted here dynamically */}
           
-          {/* Video Grid - Always visible with all participants */}
+          {/* Video Grid */}
           <div className={`video-grid ${hasScreenShare ? 'screen-share-active' : ''}`}>
             {/* Local Video */}
             <div className="video-tile local" id="local-tile">
@@ -1272,7 +1079,7 @@ const MeetingRoom = ({ role = 'student' }) => {
               </div>
             </div>
 
-            {/* Remote Videos - ALL participants appear here, including screen sharer */}
+            {/* Remote Videos */}
             {participants.map((participant) => (
               <div 
                 key={participant.userId}

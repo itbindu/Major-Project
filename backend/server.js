@@ -86,6 +86,7 @@ io.on('connection', (socket) => {
       meetingId,
       audioEnabled: true,
       videoEnabled: true,
+      isScreenSharing: false,
       joinedAt: new Date()
     };
     
@@ -99,13 +100,28 @@ io.on('connection', (socket) => {
     
     // Get all users in this meeting except current user
     const meetingUsers = Array.from(meetings.get(meetingId).values())
-      .filter(u => u.userId !== userId);
+      .filter(u => u.userId !== userId)
+      .map(u => ({
+        userId: u.userId,
+        userName: u.userName,
+        role: u.role,
+        audioEnabled: u.audioEnabled,
+        videoEnabled: u.videoEnabled,
+        isScreenSharing: u.isScreenSharing
+      }));
     
     // Send all existing users to the new user
     socket.emit('all-users', meetingUsers);
     
     // Notify others about new user
-    socket.to(meetingId).emit('user-joined', userInfo);
+    socket.to(meetingId).emit('user-joined', {
+      userId,
+      userName,
+      role,
+      audioEnabled: true,
+      videoEnabled: true,
+      isScreenSharing: false
+    });
     
     console.log(`✅ Total users in meeting ${meetingId}: ${meetings.get(meetingId).size}`);
   });
@@ -178,6 +194,112 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ============ SCREEN SHARE WEBRTC SIGNALING ============
+  socket.on('send-screen-offer', ({ meetingId, targetUserId, offer }) => {
+    console.log(`📺 Screen offer from ${socket.id} to ${targetUserId}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-screen-offer', {
+        fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
+        offer
+      });
+    }
+  });
+
+  socket.on('send-screen-answer', ({ meetingId, targetUserId, answer }) => {
+    console.log(`📺 Screen answer from ${socket.id} to ${targetUserId}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-screen-answer', {
+        fromUserId: users.get(socket.id)?.userId,
+        answer
+      });
+    }
+  });
+
+  socket.on('send-screen-ice-candidate', ({ meetingId, targetUserId, candidate }) => {
+    console.log(`📺 Screen ICE candidate from ${socket.id} to ${targetUserId}`);
+    
+    let targetSocketId = null;
+    const meeting = meetings.get(meetingId);
+    if (meeting) {
+      for (const [sid, user] of meeting) {
+        if (user.userId === targetUserId) {
+          targetSocketId = sid;
+          break;
+        }
+      }
+    }
+    
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-screen-ice-candidate', {
+        fromUserId: users.get(socket.id)?.userId,
+        candidate
+      });
+    }
+  });
+
+  // ============ SCREEN SHARE STATE EVENTS ============
+  socket.on('screen-share-started', ({ meetingId, userId, userName }) => {
+    console.log(`🖥️ Screen share started by ${userName} (${userId})`);
+    
+    // Update user info
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = true;
+    }
+    
+    // Broadcast to ALL participants in the meeting (including sender for confirmation)
+    io.to(meetingId).emit('screen-share-started', { 
+      userId, 
+      userName,
+      meetingId 
+    });
+    
+    console.log(`✅ Screen share notification sent to meeting ${meetingId}`);
+  });
+
+  socket.on('screen-share-stopped', ({ meetingId, userId }) => {
+    console.log(`🖥️ Screen share stopped by ${userId}`);
+    
+    // Update user info
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = false;
+    }
+    
+    // Broadcast to ALL participants in the meeting
+    io.to(meetingId).emit('screen-share-stopped', { 
+      userId,
+      meetingId 
+    });
+    
+    console.log(`✅ Screen share stopped notification sent to meeting ${meetingId}`);
+  });
+
   // ============ MEDIA STATE EVENTS ============
   socket.on('media-state-changed', ({ meetingId, userId, audioEnabled, videoEnabled }) => {
     console.log(`📹 Media state changed for ${userId}: audio=${audioEnabled}, video=${videoEnabled}`);
@@ -195,31 +317,6 @@ io.on('connection', (socket) => {
       audioEnabled,
       videoEnabled
     });
-  });
-
-  // ============ SCREEN SHARE EVENTS ============
-  socket.on('screen-share-started', ({ meetingId, userId }) => {
-    console.log(`🖥️ Screen share started by ${userId}`);
-    
-    // Update user info
-    const user = users.get(socket.id);
-    if (user) {
-      user.isScreenSharing = true;
-    }
-    
-    socket.to(meetingId).emit('screen-share-started', { userId });
-  });
-
-  socket.on('screen-share-stopped', ({ meetingId, userId }) => {
-    console.log(`🖥️ Screen share stopped by ${userId}`);
-    
-    // Update user info
-    const user = users.get(socket.id);
-    if (user) {
-      user.isScreenSharing = false;
-    }
-    
-    socket.to(meetingId).emit('screen-share-stopped', { userId });
   });
 
   // ============ CHAT EVENTS ============
@@ -246,6 +343,28 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('force-mute');
     }
+  });
+
+  // ============ RAISE HAND EVENTS ============
+  socket.on('raise-hand', ({ meetingId, userId, userName }) => {
+    console.log(`✋ Hand raised by ${userName} (${userId})`);
+    socket.to(meetingId).emit('hand-raised', { userId, userName });
+  });
+
+  socket.on('lower-hand', ({ meetingId, userId }) => {
+    console.log(`✋ Hand lowered by ${userId}`);
+    socket.to(meetingId).emit('hand-lowered', { userId });
+  });
+
+  // ============ REACTION EVENTS ============
+  socket.on('send-reaction', ({ meetingId, userId, userName, reaction }) => {
+    console.log(`😊 Reaction from ${userName}: ${reaction}`);
+    socket.to(meetingId).emit('reaction-sent', { userId, userName, reaction });
+  });
+
+  // ============ ACTIVE SPEAKER ============
+  socket.on('active-speaker', ({ meetingId, userId }) => {
+    socket.to(meetingId).emit('active-speaker', { userId });
   });
 
   // ============ MEETING END ============
@@ -284,7 +403,12 @@ io.on('connection', (socket) => {
     
     const user = users.get(socket.id);
     if (user) {
-      const { meetingId, userId } = user;
+      const { meetingId, userId, userName, isScreenSharing } = user;
+      
+      // If they were screen sharing, notify others to stop
+      if (isScreenSharing) {
+        io.to(meetingId).emit('screen-share-stopped', { userId });
+      }
       
       // Remove from meetings
       const meeting = meetings.get(meetingId);
@@ -300,6 +424,8 @@ io.on('connection', (socket) => {
       
       // Remove from users
       users.delete(socket.id);
+      
+      console.log(`👋 User ${userName} (${userId}) removed from meeting ${meetingId}`);
     }
   });
 });

@@ -2,7 +2,13 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../../api/config"; // Import the configured API instance
-import { Calendar, Clock } from 'lucide-react';
+import {
+  FileText,
+  BookOpen,
+  Trophy,
+  Video,
+  Calendar,
+} from "lucide-react";
 import "./StudentDashboard.css";
 import studentImage from "../../assets/student.png";
 
@@ -133,130 +139,58 @@ function StudentDashboard() {
   }
 
   return (
-    <div className="student-dashboard">
-      <header className="dashboard-header">
-        <div>
-          <h1>Welcome back, {studentName}! 👋</h1>
-          {notifications.length > 0 && (
-            <div className="notification-badge">
-              <span>🔔</span>
-              {notifications.filter(n => !n.read).length} new notifications
-            </div>
-          )}
-        </div>
-        <button onClick={handleLogout} className="logout-button">Logout</button>
-      </header>
-
-      {/* ATTENDANCE BUTTON */}
-      <div className="dashboard-actions">
-        <button 
-          className="dashboard-btn attendance-btn"
-          onClick={() => navigate('/student/attendance')}
-        >
-          <Calendar size={20} />
-          My Attendance
+    <div className="student-dashboard-page">
+      {/* HEADER */}
+      <div className="dashboard-header">
+        <h1>Welcome, {studentName}</h1>
+        <button className="logout-btn" onClick={handleLogout}>
+          Logout
         </button>
       </div>
 
-      {/* Dashboard Cards Grid */}
-      <div className="dashboard-grid">
-        <Link to="/student/quizzes" className="dashboard-card primary">
-          <span className="icon">📝</span>
-          <span className="card-title">Quizzes & Assignments</span>
-          <span className="card-desc">Take quizzes and view results</span>
-          <span className="card-badge">3 New</span>
-        </Link>
-        
-        <Link to="/student/lms" className="dashboard-card">
-          <span className="icon">📚</span>
-          <span className="card-title">Learning Materials</span>
-          <span className="card-desc">Access course files and resources</span>
-        </Link>
-        
-        <Link to="/student/leaderboard" className="dashboard-card">
-          <span className="icon">🏆</span>
-          <span className="card-title">Leaderboard</span>
-          <span className="card-desc">See your rankings and progress</span>
-        </Link>
-        
-        <Link to="/meeting-links" className="dashboard-card">
-          <span className="icon">📹</span>
-          <span className="card-title">Live Meetings</span>
-          <span className="card-desc">Join scheduled meetings</span>
-          {recentAttendance.length > 0 && (
-            <span className="card-stats">
-              <Clock size={12} />
-              Last: {formatDate(recentAttendance[0]?.joinedAt)}
-            </span>
-          )}
-        </Link>
-        
-        {/* ATTENDANCE CARD */}
-        <div 
-          className="dashboard-card attendance-card" 
-          onClick={() => navigate('/student/attendance')}
-          style={{ cursor: 'pointer' }}
-        >
-          <span className="icon">📊</span>
-          <span className="card-title">Attendance</span>
-          <span className="card-desc">View your attendance history</span>
-          {recentAttendance.length > 0 ? (
-            <div className="attendance-summary">
-              <span className="attendance-stat">
-                <Clock size={12} />
-                Last: {formatDate(recentAttendance[0]?.joinedAt)}
-              </span>
-              <span className="attendance-duration">
-                Duration: {recentAttendance[0]?.duration || 'N/A'}
-              </span>
-            </div>
-          ) : (
-            <span className="card-desc-small">No attendance records yet</span>
-          )}
-        </div>
-      </div>
+      {/* SECTION TITLE */}
+      <h2 className="section-title">Quick Actions</h2>
 
-      {/* Recent Attendance Section */}
-      {recentAttendance.length > 0 && (
-        <div className="recent-attendance-section">
-          <div className="section-header">
-            <h2>Recent Attendance</h2>
-            <button 
-              className="view-all-btn"
-              onClick={() => navigate('/student/attendance')}
-            >
-              View All Attendance
-            </button>
+      {/* ACTION CARDS */}
+      <div className="actions-grid">
+        <div className="action-card" onClick={() => navigate("/student/quizzes")}>
+          <div className="icon-box">
+            <FileText />
           </div>
-          
-          <div className="attendance-preview-list">
-            {recentAttendance.map((record, index) => (
-              <div key={index} className="attendance-preview-item">
-                <div className="meeting-info">
-                  <span className="meeting-id">Meeting #{record.meetingId?.slice(-6)}</span>
-                  <span className="meeting-date">{formatDate(record.joinedAt)}</span>
-                </div>
-                <div className="attendance-details">
-                  <div className="attendance-duration">
-                    <Clock size={14} />
-                    <span>{record.duration || 'N/A'}</span>
-                  </div>
-                  <span className={`status-badge ${record.leftAt ? 'left' : 'present'}`}>
-                    {record.leftAt ? 'Left' : 'Present'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <p>Quizzes & Assignments</p>
         </div>
-      )}
 
-      {/* Illustration */}
-      <div className="illustration-container">
-        <img src={studentImage} alt="Student learning" className="student-illustration" />
+        <div className="action-card" onClick={() => navigate("/student/lms")}>
+          <div className="icon-box">
+            <BookOpen />
+          </div>
+          <p>Learning Materials</p>
+        </div>
+
+        <div className="action-card" onClick={() => navigate("/student/leaderboard")}>
+          <div className="icon-box">
+            <Trophy />
+          </div>
+          <p>Leaderboard</p>
+        </div>
+
+        <div className="action-card" onClick={() => navigate("/meeting-links")}>
+          <div className="icon-box">
+            <Video />
+          </div>
+          <p>Live Meetings</p>
+        </div>
+
+        <div className="action-card" onClick={() => navigate("/student/attendance")}>
+          <div className="icon-box">
+            <Calendar />
+          </div>
+          <p>Attendance</p>
+        </div>
       </div>
     </div>
   );
-}
+};
+
 
 export default StudentDashboard;

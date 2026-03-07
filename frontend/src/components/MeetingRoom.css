@@ -923,3 +923,682 @@
 :-webkit-full-screen .screen-share-container {
   max-height: 60vh;
 }
+/* Add to src/components/MeetingRoom.css */
+
+/* Screen Share Styles */
+.screen-share-container {
+  width: 100%;
+  margin-bottom: 20px;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+  animation: slideDown 0.3s ease;
+}
+
+.screen-share-header {
+  padding: 12px 16px;
+  background: #2d2d2d;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  border-bottom: 1px solid #404040;
+}
+
+.screen-share-header svg {
+  color: #3b82f6;
+}
+
+.stop-screen-share-btn {
+  margin-left: auto;
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.stop-screen-share-btn:hover {
+  background: #b91c1c;
+  transform: scale(1.05);
+}
+
+.screen-share-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.screen-share-control-btn {
+  background: #3d3d3d;
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.screen-share-control-btn:hover {
+  background: #4d4d4d;
+  transform: scale(1.05);
+}
+
+.screen-share-video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  min-height: 200px;
+  max-height: 50vh;
+}
+
+.screen-share-video {
+  width: 100%;
+  height: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+/* Screen Share Banner */
+.screen-share-banner {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 1000;
+  font-size: 14px;
+  backdrop-filter: blur(8px);
+  border: 1px solid #3b82f6;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  animation: slideDown 0.3s;
+}
+
+.view-fullscreen-btn {
+  background: #3d3d3d;
+  border: none;
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-fullscreen-btn:hover {
+  background: #4d4d4d;
+  transform: scale(1.1);
+}
+
+/* Video Grid Layouts */
+.video-grid {
+  height: 100%;
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+  transition: all 0.3s ease;
+  overflow-y: auto;
+}
+
+.video-grid.layout-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.video-grid.layout-speaker {
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.video-grid.layout-speaker .video-tile:first-child {
+  grid-row: span 2;
+}
+
+.video-grid.has-screen-share {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* Video Tiles */
+.video-tile {
+  position: relative;
+  background: #2d2d2d;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.video-tile:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
+}
+
+.video-tile.active-speaker {
+  border: 3px solid #3b82f6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+}
+
+.video-element {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3d3d3d, #2d2d2d);
+}
+
+.video-placeholder.visible {
+  display: flex;
+}
+
+.avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 500;
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+/* Video Labels */
+.video-label {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  transition: all 0.2s;
+}
+
+.name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.host-badge {
+  background: #fbbf24;
+  color: #1e1e1e;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.screen-share-badge {
+  background: #3b82f6;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hand-raise-badge {
+  background: #fbbf24;
+  color: #1e1e1e;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* Reactions */
+.reactions-overlay {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.reaction-bubble {
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 30px;
+  font-size: 20px;
+  animation: floatUp 3s ease-out forwards;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100px) scale(1.5);
+    opacity: 0;
+  }
+}
+
+.reactions-popup {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2d2d2d;
+  border-radius: 40px;
+  padding: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 1500;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid #404040;
+  animation: slideUp 0.2s;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+.reaction-option {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #3d3d3d;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reaction-option:hover {
+  background: #4d4d4d;
+  transform: scale(1.2);
+}
+
+/* Hand Raise Button */
+.control-btn.hand-raise {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.control-btn.hand-raise.active {
+  background: #fbbf24;
+  color: #1e1e1e;
+}
+
+.hand-count-badge {
+  background: #fbbf24;
+  color: #1e1e1e;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+.hand-lower-btn {
+  background: #fbbf24;
+  color: #1e1e1e;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.hand-lower-btn:hover {
+  background: #f59e0b;
+}
+
+.hand-acknowledge {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.hand-acknowledge:hover {
+  background: #2563eb;
+  transform: scale(1.1);
+}
+
+/* Recording Indicator */
+.recording-indicator {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1000;
+  font-size: 13px;
+  backdrop-filter: blur(4px);
+  border: 1px solid #ef4444;
+  animation: pulse 2s infinite;
+}
+
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-radius: 50%;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Fullscreen adjustments */
+:-webkit-full-screen .meeting-room {
+  width: 100vw;
+  height: 100vh;
+}
+
+:-webkit-full-screen .video-container {
+  height: calc(100vh - 120px);
+}
+
+:-webkit-full-screen .screen-share-container {
+  max-height: 60vh;
+}
+
+:-webkit-full-screen .screen-share-video-wrapper {
+  max-height: 60vh;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .screen-share-banner {
+    top: 80px;
+    font-size: 12px;
+    padding: 8px 16px;
+  }
+
+  .video-grid.layout-speaker {
+    grid-template-columns: 1fr;
+  }
+
+  .reactions-popup {
+    bottom: 80px;
+  }
+
+  .reaction-option {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+}
+
+/* Animations */
+@keyframes slideDown {
+  from {
+    transform: translateX(-50%) translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Mute Overlay */
+.mute-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #ef4444;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 20;
+}
+
+.video-tile:hover .mute-overlay {
+  opacity: 1;
+}
+
+.mute-overlay:hover {
+  background: #dc2626;
+  transform: scale(1.1);
+}
+
+
+/* Add these styles to your existing MeetingRoom.css file */
+
+/* Screen Share Container */
+.screen-share-container {
+  width: 100%;
+  margin-bottom: 20px;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.screen-share-header {
+  padding: 12px 16px;
+  background: #2d2d2d;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  border-bottom: 1px solid #404040;
+}
+
+.stop-screen-share-btn {
+  margin-left: auto;
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stop-screen-share-btn:hover {
+  background: #b91c1c;
+}
+
+.screen-share-video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  min-height: 200px;
+  max-height: 50vh;
+}
+
+.screen-share-video {
+  width: 100%;
+  height: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+/* Screen Share Banner */
+.screen-share-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 100;
+  font-size: 14px;
+  backdrop-filter: blur(4px);
+  border: 1px solid #3b82f6;
+}
+
+/* Screen Share Badge */
+.screen-share-badge {
+  background: #3b82f6;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Video Grid when screen sharing */
+.video-grid.screen-share-active {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* Control button for screen sharing */
+.control-btn.screen-share.active {
+  background: #3b82f6;
+}
+
+.control-btn.screen-share:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.screen-share-video {
+  width: 100%;
+  height: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+.screen-share-video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  min-height: 200px;
+  max-height: 50vh;
+  overflow: hidden;
+}
+/* Make sure screen share video is visible */
+.screen-share-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+.screen-share-video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  min-height: 200px;
+  max-height: 50vh;
+  overflow: hidden;
+}
+
+.screen-share-container {
+  width: 100%;
+  margin-bottom: 20px;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
