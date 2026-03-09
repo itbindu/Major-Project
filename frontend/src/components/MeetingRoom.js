@@ -54,6 +54,8 @@ const MeetingRoom = ({ role = 'student' }) => {
   const chatEndRef = useRef(null);
   const peerConnections = useRef({});
   const screenPeerConnections = useRef({});
+  const pendingScreenOffers = useRef({});
+  const pendingScreenCandidates = useRef({});
 
   // STUN Servers
   const configuration = {
@@ -72,9 +74,16 @@ const MeetingRoom = ({ role = 'student' }) => {
         urls: 'turn:openrelay.metered.ca:443',
         username: 'openrelayproject',
         credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
       }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
   };
 
   // ============ INITIALIZE ============
@@ -194,10 +203,10 @@ const MeetingRoom = ({ role = 'student' }) => {
       // Create container immediately
       ensureScreenShareContainer(sharerName || 'Someone');
       
-      // If we are not the sharer, create a peer connection to receive the screen
+      // If we are not the sharer, prepare to receive screen
       if (sharerId !== userId) {
-        console.log('Creating screen peer connection for sharer:', sharerId);
-        createScreenPeerConnection(sharerId);
+        console.log('Preparing to receive screen from:', sharerId);
+        // Don't create connection here - wait for offer
       }
     });
 
@@ -594,26 +603,10 @@ const MeetingRoom = ({ role = 'student' }) => {
       // Create screen share connections for all existing participants
       console.log('Creating screen connections for participants:', participants);
       
-      if (participants.length === 0) {
-        console.log('No participants yet, waiting for participants list...');
-        
-        // Try again after 2 seconds
-        setTimeout(() => {
-          console.log('Retrying with participants:', participants);
-          for (const participant of participants) {
-            if (participant.userId !== userId) {
-              console.log('Creating screen connection for:', participant.userId);
-              createScreenPeerConnection(participant.userId, screenStream);
-            }
-          }
-        }, 2000);
-      } else {
-        // Create connections for existing participants
-        for (const participant of participants) {
-          if (participant.userId !== userId) {
-            console.log('Creating screen connection for:', participant.userId);
-            createScreenPeerConnection(participant.userId, screenStream);
-          }
+      for (const participant of participants) {
+        if (participant.userId !== userId) {
+          console.log('Creating screen connection for:', participant.userId);
+          createScreenPeerConnection(participant.userId, screenStream);
         }
       }
 
@@ -693,6 +686,16 @@ const MeetingRoom = ({ role = 'student' }) => {
 
     pc.oniceconnectionstatechange = () => {
       console.log('Screen PC ICE connection state for', targetUserId, ':', pc.iceConnectionState);
+      
+      // If connection fails, try again
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        console.log('Screen connection failed for', targetUserId, '- attempting to reconnect');
+        setTimeout(() => {
+          if (screenStreamRef.current && isScreenSharing) {
+            createScreenPeerConnection(targetUserId, screenStreamRef.current);
+          }
+        }, 2000);
+      }
     };
 
     pc.createOffer()
@@ -711,112 +714,135 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleReceiveScreenOffer = async ({ fromUserId, offer }) => {
-  console.log('Received screen offer from:', fromUserId);
-  
-  if (!screenPeerConnections.current[fromUserId]) {
-    console.log('Creating screen peer connection for receiver:', fromUserId);
-    const pc = new RTCPeerConnection(configuration);
-    screenPeerConnections.current[fromUserId] = pc;
+    console.log('📥 Received screen offer from:', fromUserId);
+    
+    try {
+      // Create screen peer connection if it doesn't exist
+      if (!screenPeerConnections.current[fromUserId]) {
+        console.log('Creating screen peer connection for receiver:', fromUserId);
+        const pc = new RTCPeerConnection(configuration);
+        screenPeerConnections.current[fromUserId] = pc;
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log('Sending screen ICE candidate back to:', fromUserId);
-        socketRef.current.emit('send-screen-ice-candidate', {
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log('📤 Sending screen ICE candidate back to:', fromUserId);
+            socketRef.current.emit('send-screen-ice-candidate', {
+              meetingId,
+              targetUserId: fromUserId,
+              candidate: event.candidate
+            });
+          }
+        };
+
+        pc.ontrack = (event) => {
+          console.log('📺 Received screen track from:', fromUserId);
+          console.log('Track kind:', event.track.kind);
+          console.log('Streams:', event.streams);
+          
+          const [remoteStream] = event.streams;
+          
+          if (!remoteStream) {
+            console.error('No remote stream received!');
+            return;
+          }
+
+          // Get the screen video element
+          let screenVideo = document.getElementById('screen-share-video');
+          
+          if (!screenVideo) {
+            console.log('Creating screen share container for:', fromUserId);
+            const sharer = participants.find(p => p.userId === fromUserId);
+            const sharerName = sharer?.userName || 'Someone';
+            
+            ensureScreenShareContainer(sharerName);
+            screenVideo = document.getElementById('screen-share-video');
+          }
+          
+          if (screenVideo) {
+            console.log('Setting screen video source with stream');
+            screenVideo.srcObject = remoteStream;
+            
+            // Force play
+            screenVideo.play()
+              .then(() => console.log('Screen video playing'))
+              .catch(e => console.error('Error playing screen video:', e));
+            
+            // Make sure video is visible
+            screenVideo.style.display = 'block';
+            
+            // Update state
+            setHasScreenShare(true);
+            setScreenShareParticipant({ 
+              userId: fromUserId, 
+              userName: participants.find(p => p.userId === fromUserId)?.userName || 'Someone' 
+            });
+          } else {
+            console.error('Screen video element not found after creation!');
+          }
+        };
+        
+        pc.oniceconnectionstatechange = () => {
+          console.log('Screen receiver ICE state for', fromUserId, ':', pc.iceConnectionState);
+        };
+      }
+
+      const pc = screenPeerConnections.current[fromUserId];
+
+      // Check if we're in the correct state to set remote description
+      if (pc.signalingState === 'stable') {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log('Remote description set for screen from:', fromUserId);
+        
+        const answer = await pc.createAnswer();
+        console.log('Created screen answer for:', fromUserId);
+        
+        await pc.setLocalDescription(answer);
+        console.log('Local description set for screen answer');
+
+        console.log('Sending screen answer to:', fromUserId);
+        socketRef.current.emit('send-screen-answer', {
           meetingId,
           targetUserId: fromUserId,
-          candidate: event.candidate
+          answer: pc.localDescription
         });
-      }
-    };
-
-    // IMPORTANT FIX: Handle incoming screen track
-    pc.ontrack = (event) => {
-      console.log('📺 Received screen track from:', fromUserId);
-      console.log('Track kind:', event.track.kind);
-      console.log('Streams:', event.streams);
-      
-      const [remoteStream] = event.streams;
-      
-      if (!remoteStream) {
-        console.error('No remote stream received!');
-        return;
-      }
-
-      // Get the screen video element
-      let screenVideo = document.getElementById('screen-share-video');
-      
-      if (!screenVideo) {
-        console.log('Creating screen share container for:', fromUserId);
-        const sharer = participants.find(p => p.userId === fromUserId);
-        const sharerName = sharer?.userName || 'Someone';
-        
-        ensureScreenShareContainer(sharerName);
-        screenVideo = document.getElementById('screen-share-video');
-      }
-      
-      if (screenVideo) {
-        console.log('Setting screen video source with stream');
-        screenVideo.srcObject = remoteStream;
-        
-        // Force play
-        screenVideo.play()
-          .then(() => console.log('Screen video playing'))
-          .catch(e => console.error('Error playing screen video:', e));
-        
-        // Make sure video is visible
-        screenVideo.style.display = 'block';
-        
-        // Update state
-        setHasScreenShare(true);
       } else {
-        console.error('Screen video element not found after creation!');
+        console.log('Peer connection not in stable state, current state:', pc.signalingState);
+        // Store the offer to process later
+        pendingScreenOffers.current[fromUserId] = offer;
       }
-    };
-    
-    pc.oniceconnectionstatechange = () => {
-      console.log('Screen receiver ICE state for', fromUserId, ':', pc.iceConnectionState);
+    } catch (error) {
+      console.error('Error handling screen offer:', error);
       
-      // If connection is complete, make sure video is playing
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        console.log('Screen connection established with:', fromUserId);
-        const screenVideo = document.getElementById('screen-share-video');
-        if (screenVideo && screenVideo.srcObject) {
-          screenVideo.play().catch(e => console.log('Error playing video after connection:', e));
+      // If we get an InvalidStateError, try to reset the connection
+      if (error.name === 'InvalidStateError') {
+        console.log('Invalid state error, resetting connection for:', fromUserId);
+        if (screenPeerConnections.current[fromUserId]) {
+          screenPeerConnections.current[fromUserId].close();
+          delete screenPeerConnections.current[fromUserId];
         }
+        // Retry after a short delay
+        setTimeout(() => {
+          handleReceiveScreenOffer({ fromUserId, offer });
+        }, 500);
       }
-    };
-  }
+    }
+  };
 
-  const pc = screenPeerConnections.current[fromUserId];
-
-  try {
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    console.log('Remote description set for screen from:', fromUserId);
-    
-    const answer = await pc.createAnswer();
-    console.log('Created screen answer for:', fromUserId);
-    
-    await pc.setLocalDescription(answer);
-    console.log('Local description set for screen answer');
-
-    console.log('Sending screen answer to:', fromUserId);
-    socketRef.current.emit('send-screen-answer', {
-      meetingId,
-      targetUserId: fromUserId,
-      answer: pc.localDescription
-    });
-  } catch (error) {
-    console.error('Error handling screen offer:', error);
-  }
-};
   const handleReceiveScreenAnswer = async ({ fromUserId, answer }) => {
-    console.log('Received screen answer from:', fromUserId);
+    console.log('📥 Received screen answer from:', fromUserId);
     
     const pc = screenPeerConnections.current[fromUserId];
     if (pc) {
       try {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log('Screen answer set successfully for:', fromUserId);
+        // Check current signaling state
+        if (pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          console.log('Screen answer set successfully for:', fromUserId);
+        } else {
+          console.log('Cannot set answer in state:', pc.signalingState);
+          // Store answer for later
+          pendingScreenCandidates.current[fromUserId] = answer;
+        }
       } catch (error) {
         console.error('Error handling screen answer:', error);
       }
@@ -824,7 +850,7 @@ const MeetingRoom = ({ role = 'student' }) => {
   };
 
   const handleReceiveScreenICECandidate = async ({ fromUserId, candidate }) => {
-    console.log('Received screen ICE candidate from:', fromUserId);
+    console.log('📥 Received screen ICE candidate from:', fromUserId);
     
     const pc = screenPeerConnections.current[fromUserId];
     if (pc) {
@@ -1060,7 +1086,7 @@ const MeetingRoom = ({ role = 'student' }) => {
                 className="video-element"
               />
               {!cameraOn && (
-                <div className="video-placeholder">
+                <div className="video-placeholder visible">
                   <div className="avatar">
                     {userName?.charAt(0).toUpperCase()}
                   </div>
@@ -1086,7 +1112,7 @@ const MeetingRoom = ({ role = 'student' }) => {
                 id={`tile-${participant.userId}`}
                 className="video-tile remote"
               >
-                <div className={`video-placeholder ${!participant.videoEnabled ? '' : 'hidden'}`}>
+                <div className={`video-placeholder ${!participant.videoEnabled ? 'visible' : 'hidden'}`}>
                   <div className="avatar">
                     {participant.userName?.charAt(0).toUpperCase()}
                   </div>
