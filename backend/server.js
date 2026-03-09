@@ -72,16 +72,17 @@ io.on('connection', (socket) => {
   console.log('🔵 User connected:', socket.id);
 
   // ============ MEETING EVENTS ============
+  // IMPORTANT: This must be INSIDE the connection callback
   socket.on('join-meeting', ({ meetingId, userId, userName, role }) => {
     console.log(`👤 ${userName} (${role}) joining meeting: ${meetingId}`);
     
     socket.join(meetingId);
     
-    // Store user info
+    // Store user info with name
     const userInfo = {
       socketId: socket.id,
       userId,
-      userName,
+      userName, // Store the name!
       role,
       meetingId,
       audioEnabled: true,
@@ -110,13 +111,15 @@ io.on('connection', (socket) => {
         isScreenSharing: u.isScreenSharing
       }));
     
+    console.log(`Sending ${meetingUsers.length} existing users to new user`);
+    
     // Send all existing users to the new user
     socket.emit('all-users', meetingUsers);
     
     // Notify others about new user
     socket.to(meetingId).emit('user-joined', {
       userId,
-      userName,
+      userName, // Send the name!
       role,
       audioEnabled: true,
       videoEnabled: true,
@@ -145,6 +148,7 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('receive-offer', {
         fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
         offer
       });
     }
@@ -167,6 +171,7 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('receive-answer', {
         fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
         answer
       });
     }
@@ -189,6 +194,7 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('receive-ice-candidate', {
         fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
         candidate
       });
     }
@@ -235,6 +241,7 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('receive-screen-answer', {
         fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
         answer
       });
     }
@@ -257,6 +264,7 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('receive-screen-ice-candidate', {
         fromUserId: users.get(socket.id)?.userId,
+        fromUserName: users.get(socket.id)?.userName,
         candidate
       });
     }
@@ -272,7 +280,7 @@ io.on('connection', (socket) => {
       user.isScreenSharing = true;
     }
     
-    // Broadcast to ALL participants in the meeting (including sender for confirmation)
+    // Broadcast to ALL participants in the meeting
     io.to(meetingId).emit('screen-share-started', { 
       userId, 
       userName,
