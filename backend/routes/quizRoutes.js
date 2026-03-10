@@ -6,12 +6,13 @@ const Submission = require('../Models/Submission');
 const authenticateToken = require('../middleware/auth');
 const nodemailer = require('nodemailer');
 const router = express.Router();
-// Add at the top of quizRoutes.js, after the requires
+
 const getFrontendUrl = () => {
   return process.env.NODE_ENV === 'production' 
     ? 'https://major-project-silk-pi.vercel.app' 
     : 'http://localhost:3000';
 };
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -21,62 +22,89 @@ const transporter = nodemailer.createTransport({
 });
 
 // ─────────────────────────────────────────────
-// IMPORTANT: ORDER MATTERS - SPECIFIC ROUTES FIRST
+// CREATE QUIZ (Teacher only)
 // ─────────────────────────────────────────────
+router.post('/create', authenticateToken, async (req, res) => {
+  const { title, questions, timeLimit } = req.body;
+  
+  if (!title || !questions || !timeLimit) {
+    return res.status(400).json({ message: 'All fields required' });
+  }
+  
+  if (timeLimit <= 0) {
+    return res.status(400).json({ message: 'Time limit must be at least 1 minute' });
+  }
 
-// ─────────────────────────────────────────────
-// DEBUG: Check student status (place before /:id)
-// ─────────────────────────────────────────────
-router.get('/debug/student-status', authenticateToken, async (req, res) => {
   try {
-    const student = await Student.findById(req.user.id)
-      .populate('teachers', 'firstName lastName email');
-    
-    if (!student) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Student not found' 
+    const quiz = new Quiz({ 
+      title, 
+      questions, 
+      timeLimit, 
+      teacherId: req.user.id 
+    });
+    await quiz.save();
+
+    const teacher = await Teacher.findById(req.user.id).populate('students');
+    const assignedStudents = teacher.students || [];
+    const frontendUrl = getFrontendUrl();
+
+    // Send notifications to all assigned students
+    const emailPromises = assignedStudents.map(async (student) => {
+      try {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: student.email,
+          subject: `📝 New Proctored Quiz Available: ${title}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #3b82f6;">New Proctored Quiz Created!</h2>
+              <p>Hello ${student.firstName},</p>
+              <p>Your teacher has created a new proctored quiz:</p>
+              <div style="background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0;">
+                <h3 style="color: #1e293b; margin: 0;">${title}</h3>
+                <p style="color: #64748b;">⏱️ Time Limit: ${timeLimit} minutes</p>
+                <p style="color: #64748b;">📋 Questions: ${questions.length}</p>
+                <p style="color: #dc2626; font-weight: bold;">⚠️ This is a proctored quiz with camera monitoring</p>
+              </div>
+              <p>Log in to your student dashboard to take the quiz.</p>
+              <a href="${frontendUrl}/student/quizzes" 
+                 style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; 
+                        text-decoration: none; border-radius: 8px; margin-top: 20px;">
+                Take Quiz Now
+              </a>
+            </div>
+          `,
+        });
+      } catch (emailErr) {
+        console.error('Email sending failed:', emailErr);
+      }
+
+      student.notifications = student.notifications || [];
+      student.notifications.push({
+        message: `📝 New Proctored Quiz: "${title}" (${timeLimit} min, ${questions.length} questions)`,
+        read: false,
+        createdAt: new Date(),
+        type: 'quiz',
+        link: `/proctored-quiz/${quiz._id}`
       });
-    }
-
-    const teachers = student.teachers || [];
-    const teacherIds = teachers.map(t => t._id);
-    const quizzes = await Quiz.find({ teacherId: { $in: teacherIds } })
-      .select('title timeLimit createdAt questions');
-    
-    const submissions = await Submission.find({ 
-      studentId: req.user.id 
-    }).populate('quizId', 'title');
-
-    res.json({
-      success: true,
-      student: {
-        id: student._id,
-        name: `${student.firstName} ${student.lastName}`,
-        email: student.email,
-        isApproved: student.isApproved,
-        teacherCount: teachers.length
-      },
-      teachers: teachers.map(t => ({
-        id: t._id,
-        name: `${t.firstName} ${t.lastName}`,
-        email: t.email
-      })),
-      quizCount: quizzes.length,
-      submissions: submissions.length
+      await student.save();
     });
-    
+
+    await Promise.all(emailPromises);
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Quiz created successfully', 
+      quiz 
+    });
   } catch (error) {
-    console.error('Debug route error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+    console.error('Create quiz error:', error);
+    res.status(500).json({ message: 'Failed to create quiz' });
   }
 });
 
 // ─────────────────────────────────────────────
-// LIST QUIZZES FOR STUDENT (with submitted flag) - PLACE BEFORE /:id
+// LIST QUIZZES FOR STUDENT (with submitted flag)
 // ─────────────────────────────────────────────
 router.get('/list', authenticateToken, async (req, res) => {
   try {
@@ -146,7 +174,7 @@ router.get('/list', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// TEACHER'S QUIZZES - PLACE BEFORE /:id
+// TEACHER'S QUIZZES
 // ─────────────────────────────────────────────
 router.get('/my-quizzes', authenticateToken, async (req, res) => {
   try {
@@ -162,7 +190,7 @@ router.get('/my-quizzes', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// STUDENT LEADERBOARD - PLACE BEFORE /:id
+// STUDENT LEADERBOARD (My Performance)
 // ─────────────────────────────────────────────
 router.get('/student/leaderboard', authenticateToken, async (req, res) => {
   try {
@@ -198,7 +226,7 @@ router.get('/student/leaderboard', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// CHECK IF STUDENT HAS ALREADY SUBMITTED - PLACE BEFORE /:id
+// CHECK IF STUDENT HAS ALREADY SUBMITTED
 // ─────────────────────────────────────────────
 router.get('/check-submission/:quizId', authenticateToken, async (req, res) => {
   try {
@@ -214,7 +242,7 @@ router.get('/check-submission/:quizId', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET QUIZ STATISTICS - PLACE BEFORE /:id
+// GET QUIZ STATISTICS (Teacher only)
 // ─────────────────────────────────────────────
 router.get('/:quizId/stats', authenticateToken, async (req, res) => {
   try {
@@ -252,7 +280,7 @@ router.get('/:quizId/stats', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET LEADERBOARD FOR SPECIFIC QUIZ - PLACE BEFORE /:id
+// GET LEADERBOARD FOR SPECIFIC QUIZ (Teacher view)
 // ─────────────────────────────────────────────
 router.get('/:quizId/leaderboard', authenticateToken, async (req, res) => {
   try {
@@ -261,22 +289,6 @@ router.get('/:quizId/leaderboard', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
     }
     
-    const isTeacher = await Teacher.findById(req.user.id);
-    
-    if (!isTeacher) {
-      const submission = await Submission.findOne({
-        studentId: req.user.id,
-        quizId: req.params.quizId
-      });
-      
-      if (!submission) {
-        return res.status(403).json({ 
-          success: false, 
-          message: 'You must take the quiz before viewing the leaderboard' 
-        });
-      }
-    }
-
     const submissions = await Submission.find({ quizId: req.params.quizId })
       .populate('studentId', 'firstName lastName email')
       .sort({ score: -1, submittedAt: 1 });
@@ -304,92 +316,10 @@ router.get('/:quizId/leaderboard', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// CREATE QUIZ (Teacher only)
-// ─────────────────────────────────────────────
-// CREATE QUIZ (Teacher only)
-router.post('/create', authenticateToken, async (req, res) => {
-  const { title, questions, timeLimit } = req.body;
-  
-  if (!title || !questions || !timeLimit) {
-    return res.status(400).json({ message: 'All fields required' });
-  }
-  
-  if (timeLimit <= 0) {
-    return res.status(400).json({ message: 'Time limit must be at least 1 minute' });
-  }
-
-  try {
-    const quiz = new Quiz({ 
-      title, 
-      questions, 
-      timeLimit, 
-      teacherId: req.user.id 
-    });
-    await quiz.save();
-
-    const teacher = await Teacher.findById(req.user.id).populate('students');
-    const assignedStudents = teacher.students || [];
-    const frontendUrl = getFrontendUrl();
-
-    // Send notifications to all assigned students
-    const emailPromises = assignedStudents.map(async (student) => {
-      try {
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: student.email,
-          subject: `📝 New Quiz Available: ${title}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #3b82f6;">New Quiz Created!</h2>
-              <p>Hello ${student.firstName},</p>
-              <p>Your teacher has created a new quiz:</p>
-              <div style="background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0;">
-                <h3 style="color: #1e293b; margin: 0;">${title}</h3>
-                <p style="color: #64748b;">⏱️ Time Limit: ${timeLimit} minutes</p>
-                <p style="color: #64748b;">📋 Questions: ${questions.length}</p>
-              </div>
-              <p>Log in to your student dashboard to take the quiz.</p>
-              <a href="${frontendUrl}/student/quizzes" 
-                 style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; 
-                        text-decoration: none; border-radius: 8px; margin-top: 20px;">
-                Take Quiz Now
-              </a>
-            </div>
-          `,
-        });
-      } catch (emailErr) {
-        console.error('Email sending failed:', emailErr);
-      }
-
-      student.notifications = student.notifications || [];
-      student.notifications.push({
-        message: `📝 New Quiz: "${title}" (${timeLimit} min, ${questions.length} questions)`,
-        read: false,
-        createdAt: new Date(),
-        type: 'quiz',
-        link: `/take-quiz/${quiz._id}`
-      });
-      await student.save();
-    });
-
-    await Promise.all(emailPromises);
-
-    res.status(201).json({ 
-      success: true, 
-      message: 'Quiz created successfully', 
-      quiz 
-    });
-  } catch (error) {
-    console.error('Create quiz error:', error);
-    res.status(500).json({ message: 'Failed to create quiz' });
-  }
-});
-
-// ─────────────────────────────────────────────
-// SUBMIT QUIZ
+// SUBMIT QUIZ (with proctoring data)
 // ─────────────────────────────────────────────
 router.post('/submit/:quizId', authenticateToken, async (req, res) => {
-  const { answers } = req.body;
+  const { answers, proctoringData } = req.body;
   
   if (!Array.isArray(answers)) {
     return res.status(400).json({ success: false, message: 'Answers must be an array' });
@@ -423,7 +353,7 @@ router.post('/submit/:quizId', authenticateToken, async (req, res) => {
             score++;
           }
         } else {
-          if (answer.trim() === correctAnswers[index].trim()) {
+          if (answer.trim().toLowerCase() === correctAnswers[index].trim().toLowerCase()) {
             score++;
           }
         }
@@ -435,6 +365,7 @@ router.post('/submit/:quizId', authenticateToken, async (req, res) => {
       quizId: req.params.quizId,
       answers,
       score,
+      proctoringData: proctoringData || {}
     });
     
     await submission.save();
@@ -455,7 +386,7 @@ router.post('/submit/:quizId', authenticateToken, async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Quiz submitted successfully',
-      score: `${score} / ${quiz.questions.length}`,
+      score: score,
       percentage: Math.round((score / quiz.questions.length) * 100),
       correctAnswers,
       totalQuestions: quiz.questions.length,
@@ -530,10 +461,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-
-// IMPORTANT: THIS ROUTE MUST BE LAST
-// GET SINGLE QUIZ - KEEP THIS AT THE BOTTOM
-
+// GET SINGLE QUIZ (Must be last)
 // ─────────────────────────────────────────────
 router.get('/:id', authenticateToken, async (req, res) => {
   try {

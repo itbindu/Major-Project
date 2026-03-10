@@ -10,7 +10,7 @@ import {
   Calendar,
 } from "lucide-react";
 import "./StudentDashboard.css";
-import studentImage from "../../assets/student.png";
+// import studentImage from "../../assets/student.png"; // Commented out if not used
 
 function StudentDashboard() {
   const [approved, setApproved] = useState(false);
@@ -82,28 +82,53 @@ function StudentDashboard() {
         const key = localStorage.key(i);
         if (key && key.startsWith('attendance_')) {
           try {
-            const records = JSON.parse(localStorage.getItem(key) || '[]');
-            // Find records matching this student
-            const myRecords = records.filter(r => 
-              r.userName === studentName || 
-              r.userId === localStorage.getItem('userId')
-            );
-            if (myRecords.length > 0) {
-              attendance.push({
-                meetingId: key.replace('attendance_', ''),
-                ...myRecords[0]
-              });
+            const storedValue = localStorage.getItem(key);
+            if (!storedValue) continue;
+            
+            // Parse the stored value
+            const records = JSON.parse(storedValue);
+            
+            // Check if records is an array before using filter
+            if (Array.isArray(records)) {
+              // Find records matching this student
+              const myRecords = records.filter(r => 
+                r.userName === studentName || 
+                r.userId === localStorage.getItem('userId')
+              );
+              
+              if (myRecords.length > 0) {
+                attendance.push({
+                  meetingId: key.replace('attendance_', ''),
+                  ...myRecords[0]
+                });
+              }
+            } else if (records && typeof records === 'object') {
+              // If it's a single object, not an array
+              if (records.userName === studentName || records.userId === localStorage.getItem('userId')) {
+                attendance.push({
+                  meetingId: key.replace('attendance_', ''),
+                  ...records
+                });
+              }
             }
           } catch (e) {
-            console.error('Error parsing attendance:', e);
+            console.error('Error parsing attendance for key:', key, e);
+            // Continue to next key even if this one fails
           }
         }
       }
+      
       // Sort by date (newest first) and take last 3
-      attendance.sort((a, b) => new Date(b.joinedAt) - new Date(a.joinedAt));
-      setRecentAttendance(attendance.slice(0, 3));
+      const sortedAttendance = attendance.sort((a, b) => {
+        const dateA = a.joinedAt ? new Date(a.joinedAt) : new Date(0);
+        const dateB = b.joinedAt ? new Date(b.joinedAt) : new Date(0);
+        return dateB - dateA;
+      });
+      
+      setRecentAttendance(sortedAttendance.slice(0, 3));
     } catch (error) {
       console.error('Error loading attendance:', error);
+      setRecentAttendance([]); // Set empty array on error
     }
   };
 
@@ -117,13 +142,17 @@ function StudentDashboard() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Present';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Invalid date';
+    }
   };
 
   if (loading) return <div className="loading-screen">Loading dashboard...</div>;
@@ -188,9 +217,22 @@ function StudentDashboard() {
           <p>Attendance</p>
         </div>
       </div>
+
+      {/* Optional: Display recent attendance if available */}
+      {recentAttendance.length > 0 && (
+        <div className="recent-attendance">
+          <h3>Recent Attendance</h3>
+          <ul>
+            {recentAttendance.map((att, index) => (
+              <li key={index}>
+                Meeting: {att.meetingId} - Joined: {formatDate(att.joinedAt)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
-
 
 export default StudentDashboard;

@@ -11,7 +11,8 @@ import {
   Trophy, 
   BookOpen, 
   BarChart3,
-  Users
+  Users,
+  ClipboardList // Add this import for the quiz list icon
 } from 'lucide-react';
 
 const TeacherDashboard = () => {
@@ -121,6 +122,12 @@ const TeacherDashboard = () => {
           Create Quiz
         </Link>
 
+        {/* NEW: Quiz List Link - Add this right after Create Quiz */}
+        <Link className="action-card" to="/teacher/quiz-list">
+          <ClipboardList className="card-icon" size={42} />
+          My Quiz List
+        </Link>
+
         <Link className="action-card" to="/teacher/leaderboard">
           <Trophy className="card-icon" size={42} />
           Leaderboard
@@ -136,7 +143,7 @@ const TeacherDashboard = () => {
           Attendance Records
         </Link>
 
-        {/* NEW: Student Approval Navigation Button */}
+        {/* Student Approval Navigation Button */}
         <Link className="action-card" to="/teacher/student-approval">
           <Users className="card-icon" size={42} />
           Student Approval

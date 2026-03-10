@@ -74,7 +74,7 @@ function App() {
           <Route path="/student/attendance" element={<AttendancePage role="student" />} />
           <Route path="/student/leaderboard" element={<StudentLeaderboard />} />
           <Route path="/proctored-quiz/:quizId" element={<ProctoredQuiz />} />
-
+          <Route path="/teacher/quiz-list" element={<TeacherQuizList />} />
           {/* Teacher Protected Routes */}
           <Route
             path="/teacher/dashboard"

@@ -112,6 +112,7 @@ const QuizList = () => {
               <div className="quiz-meta">
                 <span className="time-badge">⏱️ {quiz.timeLimit} minutes</span>
                 <span className="questions-badge">📋 {quiz.questions?.length || 0} questions</span>
+                <span className="proctored-badge">🎥 Proctored</span>
               </div>
               <p className="created-date">
                 Created: {new Date(quiz.createdAt).toLocaleDateString()}
@@ -124,8 +125,8 @@ const QuizList = () => {
                   </Link>
                 </div>
               ) : (
-                <Link to={`/take-quiz/${quiz._id}`} className="take-quiz-btn">
-                  Start Quiz
+                <Link to={`/proctored-quiz/${quiz._id}`} className="take-quiz-btn">
+                  Start Proctored Quiz
                 </Link>
               )}
             </div>

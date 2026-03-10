@@ -223,3 +223,11 @@
     gap: 0.5rem;
   }
 }
+.proctored-badge {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.75rem;
+  background: #fee2e2;
+  border-radius: 2rem;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
